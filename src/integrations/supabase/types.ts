@@ -14,7 +14,432 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      accounts: {
+        Row: {
+          banned: boolean
+          created_at: string
+          created_by: string | null
+          id: string
+          password: string
+          permissions: Json
+          reset_token: string | null
+          role: string
+          username: string
+        }
+        Insert: {
+          banned?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          password: string
+          permissions?: Json
+          reset_token?: string | null
+          role: string
+          username: string
+        }
+        Update: {
+          banned?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          password?: string
+          permissions?: Json
+          reset_token?: string | null
+          role?: string
+          username?: string
+        }
+        Relationships: []
+      }
+      api_keys: {
+        Row: {
+          created_at: string
+          id: string
+          key: string
+          payment_method_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          key: string
+          payment_method_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          key?: string
+          payment_method_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_payment_method_id_fkey"
+            columns: ["payment_method_id"]
+            isOneToOne: false
+            referencedRelation: "payment_methods"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      balances: {
+        Row: {
+          account_id: string
+          amount: number
+          currency_id: string
+        }
+        Insert: {
+          account_id: string
+          amount?: number
+          currency_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          currency_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "balances_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "balances_currency_id_fkey"
+            columns: ["currency_id"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      currencies: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          name: string
+          rate_expr: string
+          rate_log10: number
+          symbol: string
+          visibility: Json
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+          rate_expr?: string
+          rate_log10?: number
+          symbol?: string
+          visibility?: Json
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          rate_expr?: string
+          rate_log10?: number
+          symbol?: string
+          visibility?: Json
+        }
+        Relationships: []
+      }
+      facilities: {
+        Row: {
+          created_at: string
+          currency_id: string | null
+          engineer_id: string
+          fee: number
+          id: string
+          ip: string | null
+          kind: string
+          lat: number | null
+          lng: number | null
+          name: string
+          radius_m: number
+        }
+        Insert: {
+          created_at?: string
+          currency_id?: string | null
+          engineer_id: string
+          fee?: number
+          id?: string
+          ip?: string | null
+          kind: string
+          lat?: number | null
+          lng?: number | null
+          name: string
+          radius_m?: number
+        }
+        Update: {
+          created_at?: string
+          currency_id?: string | null
+          engineer_id?: string
+          fee?: number
+          id?: string
+          ip?: string | null
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          name?: string
+          radius_m?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facilities_currency_id_fkey"
+            columns: ["currency_id"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facilities_engineer_id_fkey"
+            columns: ["engineer_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      logs: {
+        Row: {
+          account_id: string | null
+          action: string
+          created_at: string
+          detail: Json
+          id: number
+          role: string | null
+          username: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          action: string
+          created_at?: string
+          detail?: Json
+          id?: number
+          role?: string | null
+          username?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          action?: string
+          created_at?: string
+          detail?: Json
+          id?: number
+          role?: string | null
+          username?: string | null
+        }
+        Relationships: []
+      }
+      messages: {
+        Row: {
+          body: string
+          created_at: string
+          from_id: string
+          id: number
+          to_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          from_id: string
+          id?: number
+          to_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          from_id?: string
+          id?: number
+          to_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_from_id_fkey"
+            columns: ["from_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_to_id_fkey"
+            columns: ["to_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_methods: {
+        Row: {
+          created_at: string
+          currency_ids: string[]
+          fee_normal: number
+          id: string
+          name: string
+          owner_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency_ids?: string[]
+          fee_normal?: number
+          id?: string
+          name: string
+          owner_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency_ids?: string[]
+          fee_normal?: number
+          id?: string
+          name?: string
+          owner_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_methods_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      presence: {
+        Row: {
+          account_id: string
+          facility_id: string
+          last_charged: string
+          since: string
+        }
+        Insert: {
+          account_id: string
+          facility_id: string
+          last_charged?: string
+          since?: string
+        }
+        Update: {
+          account_id?: string
+          facility_id?: string
+          last_charged?: string
+          since?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "presence_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "presence_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          area: Json
+          created_at: string
+          currency_id: string
+          description: string
+          id: string
+          images: string[]
+          name: string
+          price: number
+          seller_id: string
+          stock: number
+          videos: string[]
+        }
+        Insert: {
+          area?: Json
+          created_at?: string
+          currency_id: string
+          description?: string
+          id?: string
+          images?: string[]
+          name: string
+          price: number
+          seller_id: string
+          stock?: number
+          videos?: string[]
+        }
+        Update: {
+          area?: Json
+          created_at?: string
+          currency_id?: string
+          description?: string
+          id?: string
+          images?: string[]
+          name?: string
+          price?: number
+          seller_id?: string
+          stock?: number
+          videos?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_currency_id_fkey"
+            columns: ["currency_id"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sessions: {
+        Row: {
+          account_id: string
+          created_at: string
+          token: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          token: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      settings: {
+        Row: {
+          key: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          value?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
