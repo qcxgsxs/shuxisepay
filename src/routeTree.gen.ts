@@ -10,33 +10,53 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiMediaSplatRouteImport } from './routes/api/media/$'
+import { Route as ApiPublicPayRouteImport } from './routes/api/public/pay'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMediaSplatRoute = ApiMediaSplatRouteImport.update({
+  id: '/api/media/$',
+  path: '/api/media/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicPayRoute = ApiPublicPayRouteImport.update({
+  id: '/api/public/pay',
+  path: '/api/public/pay',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/media/$': typeof ApiMediaSplatRoute
+  '/api/public/pay': typeof ApiPublicPayRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/media/$': typeof ApiMediaSplatRoute
+  '/api/public/pay': typeof ApiPublicPayRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/media/$': typeof ApiMediaSplatRoute
+  '/api/public/pay': typeof ApiPublicPayRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/api/media/$' | '/api/public/pay'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/media/$' | '/api/public/pay'
+  id: '__root__' | '/' | '/api/media/$' | '/api/public/pay'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiMediaSplatRoute: typeof ApiMediaSplatRoute
+  ApiPublicPayRoute: typeof ApiPublicPayRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +68,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/media/$': {
+      id: '/api/media/$'
+      path: '/api/media/$'
+      fullPath: '/api/media/$'
+      preLoaderRoute: typeof ApiMediaSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/pay': {
+      id: '/api/public/pay'
+      path: '/api/public/pay'
+      fullPath: '/api/public/pay'
+      preLoaderRoute: typeof ApiPublicPayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiMediaSplatRoute: ApiMediaSplatRoute,
+  ApiPublicPayRoute: ApiPublicPayRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
