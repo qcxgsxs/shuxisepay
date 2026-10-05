@@ -1,24 +1,52 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ROLES, ROLE_LABEL } from "@/lib/roles";
+import { AppIcon, Themed, useConfig } from "@/components/Shell";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "七彩星光支付 · 选择登录窗口" },
+      { name: "description", content: "大富翁式虚拟支付游戏，九种账号九个登录窗口。" },
+      { property: "og:title", content: "七彩星光支付" },
+      { property: "og:description", content: "大富翁式虚拟支付游戏，九种账号九个登录窗口。" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+const TILE = ["bg-tile-1", "bg-tile-2", "bg-tile-3", "bg-tile-4", "bg-tile-5", "bg-tile-6", "bg-tile-7", "bg-tile-8", "bg-tile-9"];
+
 function Index() {
+  const { data } = useConfig();
+  const list = data?.theme?.layout === "list";
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <Themed menu="home">
+      <main className="mx-auto max-w-4xl px-4 py-8">
+        <header className="mb-8 flex items-center gap-4">
+          <AppIcon size={64} />
+          <div>
+            <h1 className="text-4xl sm:text-5xl rainbow-text drop-shadow-sm">七彩星光支付</h1>
+            <p className="text-sm text-muted-foreground">QCXG PAY · 仅虚拟财产互动</p>
+          </div>
+        </header>
+        <div className={list ? "flex flex-col gap-3" : "grid grid-cols-3 gap-3"}>
+          {ROLES.map((r, i) => (
+            <Link
+              key={r}
+              to="/login/$role"
+              params={{ role: r }}
+              className="card-hard group flex flex-col overflow-hidden transition-transform hover:-translate-y-1"
+            >
+              <div className={`${TILE[i]} h-6 border-b-2 border-ink sm:h-8`} />
+              <div className={`flex flex-1 ${list ? "flex-row items-center justify-between" : "flex-col"} p-3`}>
+                <span className="font-display text-xs text-muted-foreground">第 {i + 1} 格</span>
+                <span className="font-display text-base sm:text-xl">{ROLE_LABEL[r]}</span>
+                <span className="mt-auto pt-2 text-xs text-muted-foreground">{r === "normal" ? "登录 / 注册 →" : "登录 →"}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </main>
+    </Themed>
   );
 }
