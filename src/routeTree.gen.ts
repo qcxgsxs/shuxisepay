@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as LoginRoleRouteImport } from './routes/login.$role'
 import { Route as ResetTokenRouteImport } from './routes/reset.$token'
 import { Route as ApiMediaSplatRouteImport } from './routes/api/media/$'
@@ -18,6 +19,11 @@ import { Route as ApiPublicPayRouteImport } from './routes/api/public/pay'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoleRoute = LoginRoleRouteImport.update({
@@ -43,6 +49,7 @@ const ApiPublicPayRoute = ApiPublicPayRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/app': typeof AppRoute
   '/login/$role': typeof LoginRoleRoute
   '/reset/$token': typeof ResetTokenRoute
   '/api/media/$': typeof ApiMediaSplatRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/app': typeof AppRoute
   '/login/$role': typeof LoginRoleRoute
   '/reset/$token': typeof ResetTokenRoute
   '/api/media/$': typeof ApiMediaSplatRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/app': typeof AppRoute
   '/login/$role': typeof LoginRoleRoute
   '/reset/$token': typeof ResetTokenRoute
   '/api/media/$': typeof ApiMediaSplatRoute
@@ -66,13 +75,24 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login/$role' | '/reset/$token' | '/api/media/$' | '/api/public/pay'
+    | '/'
+    | '/app'
+    | '/login/$role'
+    | '/reset/$token'
+    | '/api/media/$'
+    | '/api/public/pay'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/login/$role' | '/reset/$token' | '/api/media/$' | '/api/public/pay'
+    | '/'
+    | '/app'
+    | '/login/$role'
+    | '/reset/$token'
+    | '/api/media/$'
+    | '/api/public/pay'
   id:
     | '__root__'
     | '/'
+    | '/app'
     | '/login/$role'
     | '/reset/$token'
     | '/api/media/$'
@@ -81,6 +101,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRoute
   LoginRoleRoute: typeof LoginRoleRoute
   ResetTokenRoute: typeof ResetTokenRoute
   ApiMediaSplatRoute: typeof ApiMediaSplatRoute
@@ -94,6 +115,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login/$role': {
@@ -129,6 +157,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRoute,
   LoginRoleRoute: LoginRoleRoute,
   ResetTokenRoute: ResetTokenRoute,
   ApiMediaSplatRoute: ApiMediaSplatRoute,
