@@ -51,7 +51,7 @@ const b64 = (u: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uin
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 async function derive(pw: string, salt: Uint8Array, iter: number) {
   const key = await crypto.subtle.importKey("raw", enc.encode(pw), "PBKDF2", false, ["deriveBits"]);
-  return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, key, 256));
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: salt as BufferSource, iterations: iter, hash: "SHA-256" }, key, 256));
 }
 export async function hashPw(pw: string) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
