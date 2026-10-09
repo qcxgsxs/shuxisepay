@@ -2,9 +2,20 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback } from "react";
 import { rpc } from "./api.functions";
 
-const KEY = "qcxg_token";
-export const getToken = () => (typeof window === "undefined" ? undefined : localStorage.getItem(KEY) ?? undefined);
-export const setToken = (t: string | null) => (t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY));
+// Multi-account ("分身") sessions kept in this browser; one is active at a time.
+export type SavedSession = { token: string; username: string; role: string };
+const LIST = "qcxg_sessions", ACTIVE = "qcxg_active";
+const isBrowser = () => typeof window !== "undefined";
+export const listSessions = (): SavedSession[] => { if (!isBrowser()) return []; try { return JSON.parse(localStorage.getItem(LIST) || "[]"); } catch { return []; } };
+const saveList = (l: SavedSession[]) => localStorage.setItem(LIST, JSON.stringify(l));
+export const getToken = () => (isBrowser() ? localStorage.getItem(ACTIVE) ?? undefined : undefined);
+export const switchSession = (token: string) => localStorage.setItem(ACTIVE, token);
+export function addSession(s: SavedSession) { saveList([...listSessions().filter((x) => x.token !== s.token), s]); switchSession(s.token); }
+export function removeSession(token?: string) {
+  const l = listSessions().filter((x) => x.token !== token); saveList(l);
+  if (l[0]) switchSession(l[0].token); else localStorage.removeItem(ACTIVE);
+  return l[0];
+}
 
 export function useApi() {
   const fn = useServerFn(rpc);
