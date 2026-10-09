@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ROLES, ROLE_LABEL } from "@/lib/roles";
-import { AppIcon, Themed, useConfig } from "@/components/Shell";
+import { AppIcon, Themed, useConfig, useText } from "@/components/Shell";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,14 +19,16 @@ const TILE = ["bg-tile-1", "bg-tile-2", "bg-tile-3", "bg-tile-4", "bg-tile-5", "
 function Index() {
   const { data } = useConfig();
   const list = data?.theme?.layout === "list";
+  const t = useText();
+  const signupRoles = data?.signup?.roles ?? ["normal"];
   return (
     <Themed menu="home">
       <main className="mx-auto max-w-4xl px-4 py-8">
         <header className="mb-8 flex items-center gap-4">
           <AppIcon size={64} />
           <div>
-            <h1 className="text-4xl sm:text-5xl rainbow-text drop-shadow-sm">七彩星光支付</h1>
-            <p className="text-sm text-muted-foreground">QCXG PAY · 仅虚拟财产互动</p>
+            <h1 className="text-4xl sm:text-5xl rainbow-text drop-shadow-sm">{t("app_name", "七彩星光支付")}</h1>
+            <p className="text-sm text-muted-foreground">{t("app_sub", "QCXG PAY · 仅虚拟财产互动")}</p>
           </div>
         </header>
         <div className={list ? "flex flex-col gap-3" : "grid grid-cols-3 gap-3"}>
@@ -40,8 +42,8 @@ function Index() {
               <div className={`${TILE[i]} h-6 border-b-2 border-ink sm:h-8`} />
               <div className={`flex flex-1 ${list ? "flex-row items-center justify-between" : "flex-col"} p-3`}>
                 <span className="font-display text-xs text-muted-foreground">第 {i + 1} 格</span>
-                <span className="font-display text-base sm:text-xl">{ROLE_LABEL[r]}</span>
-                <span className="mt-auto pt-2 text-xs text-muted-foreground">{r === "normal" ? "登录 / 注册 →" : "登录 →"}</span>
+                <span className="font-display text-base sm:text-xl">{t(`role_${r}`, ROLE_LABEL[r])}</span>
+                <span className="mt-auto pt-2 text-xs text-muted-foreground">{signupRoles.includes(r) ? t("tile_signup", "登录 / 注册 →") : t("tile_login", "登录 →")}</span>
               </div>
             </Link>
           ))}

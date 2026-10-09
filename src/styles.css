@@ -76,7 +76,10 @@
   --tile-7: oklch(0.6 0.2 295);
   --tile-8: oklch(0.72 0.18 340);
   --tile-9: oklch(0.85 0.05 80);
-  --shadow-hard: 4px 4px 0 0 var(--ink);
+  --panel-alpha: 100%;
+  --panel-bg: color-mix(in oklch, var(--card) var(--panel-alpha), transparent);
+  --panel-line: color-mix(in oklch, var(--ink) var(--panel-alpha), transparent);
+  --shadow-hard: 4px 4px 0 0 var(--panel-line);
 }
 
 @layer base {
@@ -86,8 +89,8 @@
 }
 
 @utility card-hard {
-  background: var(--card);
-  border: 2px solid var(--ink);
+  background: var(--panel-bg);
+  border: 2px solid var(--panel-line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-hard);
 }
@@ -100,14 +103,14 @@
   &:disabled { opacity: .5; }
 }
 @utility btn-ghost {
-  background: var(--card); color: var(--ink);
+  background: var(--panel-bg); color: var(--ink); border-color: var(--panel-line);
 }
 @utility btn-danger {
   background: var(--destructive); color: var(--destructive-foreground);
 }
 @utility field {
-  width: 100%; padding: .45rem .7rem; border: 2px solid var(--ink); border-radius: calc(var(--radius) - 4px);
-  background: var(--card); color: var(--foreground);
+  width: 100%; padding: .45rem .7rem; border: 2px solid var(--panel-line); border-radius: calc(var(--radius) - 4px);
+  background: var(--panel-bg); color: var(--foreground);
   &:focus { outline: 3px solid var(--ring); outline-offset: 1px; }
 }
 @utility rainbow-text {

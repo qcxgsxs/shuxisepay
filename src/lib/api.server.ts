@@ -4,7 +4,7 @@ import { evalRateLog10, LOG_CAP, type OperatorDef } from "./expr";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabaseAdmin as any;
-type Acc = { id: string; username: string; password: string; role: Role; banned: boolean; permissions: Record<string, unknown> };
+type Acc = { id: string; username: string; password: string; password_hash?: string | null; real_role?: Role; role: Role; banned: boolean; permissions: Record<string, unknown> };
 type Cur = { id: string; code: string; name: string; symbol: string; rate_expr: string; rate_log10: number; visibility: Record<string, string> };
 
 const fail = (m: string): never => { throw new Error(m); };
@@ -43,6 +43,39 @@ function visLevel(a: Acc, c: Cur): "full" | "currency" | "none" {
 async function feePct(a: Acc) {
   const f = await getSetting<any>("fees", { bank: 5, normal: 30, other: 15 });
   return a.role === "bank" ? f.bank : a.role === "normal" ? f.normal : (f[a.role] ?? f.other);
+}
+
+// ---------- passwords (PBKDF2, never stored in plain text) ----------
+const enc = new TextEncoder();
+const b64 = (u: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(u as ArrayBuffer)));
+const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function derive(pw: string, salt: Uint8Array, iter: number) {
+  const key = await crypto.subtle.importKey("raw", enc.encode(pw), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: salt as BufferSource, iterations: iter, hash: "SHA-256" }, key, 256));
+}
+export async function hashPw(pw: string) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return `pbkdf2$100000$${b64(salt)}$${b64(await derive(pw, salt, 100000))}`;
+}
+async function verifyPw(a: Acc, pw: string): Promise<boolean> {
+  if (a.password_hash) {
+    const [, it, salt, h] = a.password_hash.split("$");
+    const got = await derive(String(pw), unb64(salt), Number(it));
+    const exp = unb64(h);
+    if (got.length !== exp.length) return false;
+    let d = 0; for (let i = 0; i < got.length; i++) d |= got[i] ^ exp[i];
+    return d === 0;
+  }
+  if (a.password && a.password === pw) { // legacy plain text: migrate now
+    await db.from("accounts").update({ password: "", password_hash: await hashPw(pw) }).eq("id", a.id);
+    return true;
+  }
+  return false;
+}
+const pwOk = (role: Role, pw: string) => (role === "top" ? pw.length > 20 : pw.length > 6);
+function effective(a: Acc): Acc {
+  const as = a.permissions?.acts_as as Role | undefined;
+  return { ...a, real_role: a.role, role: as && ROLES.includes(as) ? as : a.role };
 }
 
 // ---------- money ----------
@@ -93,7 +126,7 @@ async function byToken(token?: string): Promise<Acc> {
   const a: Acc = await q(db.from("accounts").select("*").eq("id", s.account_id).maybeSingle());
   if (!a) fail("账号不存在");
   if (a.banned) fail("账号已被封禁");
-  return a;
+  return effective(a);
 }
 async function findUser(username: string): Promise<Acc> {
   const a = await q(db.from("accounts").select("*").eq("username", username).maybeSingle());
@@ -110,7 +143,7 @@ async function createAccount(creator: Acc | null, username: string, password: st
   }
   const ex = await q(db.from("accounts").select("id").eq("username", username).maybeSingle());
   if (ex) fail("用户名已存在");
-  const a = await q(db.from("accounts").insert({ username, password, role, created_by: creator?.id ?? null }).select().single());
+  const a = await q(db.from("accounts").insert({ username, password: "", password_hash: await hashPw(password), role, created_by: creator?.id ?? null }).select().single());
   if (role === "bank") {
     const g = await getSetting<any>("bank_gift", { currency: "XMY", amount: 100000000 });
     const c = await q(db.from("currencies").select("id").eq("code", g.currency).maybeSingle());
@@ -151,15 +184,15 @@ function inArea(area: any, pt?: [number, number] | null) {
 }
 
 // ---------- ops ----------
-type Ctx = { token?: string; ip: string };
+type Ctx = { token?: string; ip: string; host?: string };
 const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
   async config() {
-    const [wallpapers, icon, theme] = await Promise.all([getSetting("wallpapers", {}), getSetting("icon", {}), getSetting("theme", {})]);
-    return { wallpapers, icon, theme };
+    const [wallpapers, icon, theme, texts, signup] = await Promise.all([getSetting("wallpapers", {}), getSetting("icon", {}), getSetting("theme", {}), getSetting("texts", {}), getSetting("signup", { roles: ["normal"], monthly_limit: 1 })]);
+    return { wallpapers, icon, theme, texts, signup };
   },
   async login({ role, username, password }) {
     const a = await q(db.from("accounts").select("*").eq("username", String(username).trim()).maybeSingle());
-    if (!a || a.password !== password) fail("用户名或密码错误");
+    if (!a || !(await verifyPw(a, String(password)))) fail("用户名或密码错误");
     if (a.role !== role) fail("该账号不属于此登录窗口");
     if (a.banned) fail("账号已被封禁");
     const token = rnd();
@@ -167,13 +200,17 @@ const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
     await log(a, "login");
     return { token };
   },
-  async signup_normal({ username, password }, ctx) {
+  async signup_normal(args, ctx) { return handlers.signup(args, ctx); },
+  async signup({ username, password, role = "normal" }, ctx) {
+    const cfg = await getSetting<any>("signup", { roles: ["normal"], monthly_limit: 1 });
+    if (!cfg.roles?.includes(role)) fail("此窗口未开放注册");
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
     const recent = await q(db.from("logs").select("id").eq("action", "signup_normal").gte("created_at", since).contains("detail", { ip: ctx.ip }));
-    if (recent.length > 0) fail("此注册入口每个月只能注册一个普通账号");
-    const r = await createAccount(null, username, password, "normal");
-    await log({ id: r.id, username, role: "normal" }, "signup_normal", { ip: ctx.ip });
-    return handlers.login({ role: "normal", username, password }, ctx);
+    const limit = Number(cfg.monthly_limit ?? 1);
+    if (limit > 0 && recent.length >= limit) fail(`此注册入口每个月只能注册 ${limit} 个账号`);
+    const r = await createAccount(null, username, password, role);
+    await log({ id: r.id, username, role }, "signup_normal", { ip: ctx.ip });
+    return handlers.login({ role, username, password }, ctx);
   },
   async reset_info({ token }) {
     const a = await q(db.from("accounts").select("username,role").eq("reset_token", token).maybeSingle());
@@ -182,8 +219,8 @@ const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
   async reset_do({ token, password }) {
     const a = await q(db.from("accounts").select("*").eq("reset_token", token).maybeSingle());
     if (!a) fail("重设链接无效或已使用");
-    if (a.role === "top" ? password.length <= 20 : password.length <= 6) fail("密码长度不足");
-    await q(db.from("accounts").update({ password, reset_token: null }).eq("id", a.id));
+    if (!pwOk(a.role, password)) fail("密码长度不足");
+    await q(db.from("accounts").update({ password: "", password_hash: await hashPw(password), reset_token: null }).eq("id", a.id));
     await db.from("sessions").delete().eq("account_id", a.id);
     await log(a, "reset_password");
     return { ok: true };
@@ -192,15 +229,14 @@ const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
 
 const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   async me(me) {
-    return { id: me.id, username: me.username, role: me.role, perms: await perms(me), canRegister: CAN_REGISTER[me.role] };
+    return { id: me.id, username: me.username, role: me.role, realRole: me.real_role, perms: await perms(me), canRegister: CAN_REGISTER[me.role], theme: me.permissions?.theme ?? null };
   },
   async logout(_me, _a, ctx) { await db.from("sessions").delete().eq("token", ctx.token); return { ok: true }; },
 
   // ----- accounts -----
   async list_accounts(me) {
-    const rows: any[] = await q(db.from("accounts").select("id,username,password,role,banned,permissions,created_at").order("created_at"));
-    const vis = me.role === "top" ? rows : rows.filter((r) => CAN_REGISTER[me.role].includes(r.role));
-    return vis.map((r) => (me.role === "top" ? r : { ...r, password: undefined }));
+    const rows: any[] = await q(db.from("accounts").select("id,username,role,banned,permissions,created_at").order("created_at"));
+    return me.role === "top" ? rows : rows.filter((r) => CAN_REGISTER[me.role].includes(r.role));
   },
   async create_account(me, { username, password, role }) { return createAccount(me, username, password, role); },
   async ban(me, { id, banned }) {
@@ -219,8 +255,9 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   async set_password(me, { id, password }) {
     if (me.role !== "top") fail("仅顶级账号可修改他人密码");
     const t = await q(db.from("accounts").select("role").eq("id", id).single());
-    if (t.role === "top" ? password.length <= 20 : password.length <= 6) fail("密码长度不足");
-    await q(db.from("accounts").update({ password }).eq("id", id));
+    if (!pwOk(t.role, password)) fail("密码长度不足");
+    await q(db.from("accounts").update({ password: "", password_hash: await hashPw(password) }).eq("id", id));
+    await db.from("sessions").delete().eq("account_id", id);
     await log(me, "set_password", { id });
     return { ok: true };
   },
@@ -241,6 +278,7 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   async set_account_perms(me, { id, permissions }) {
     const t: Acc = await q(db.from("accounts").select("*").eq("id", id).single());
     if (me.role !== "top" && MANAGES[me.role] !== t.role) fail("你不能管理该账号的权限");
+    if (me.role !== "top") { permissions = { ...permissions }; delete permissions.acts_as; delete permissions.theme; if (t.permissions?.acts_as) permissions.acts_as = t.permissions.acts_as; if (t.permissions?.theme) permissions.theme = t.permissions.theme; }
     await q(db.from("accounts").update({ permissions }).eq("id", id));
     await log(me, "set_perms", { id, permissions });
     return { ok: true };
@@ -252,7 +290,7 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     return Object.fromEntries(rows.map((r: any) => [r.key, r.value]));
   },
   async set_setting(me, { key, value }) {
-    const topKeys = ["wallpapers", "icon", "theme", "role_perms"];
+    const topKeys = ["wallpapers", "icon", "theme", "role_perms", "texts", "signup"];
     const bankKeys = ["fees", "bank_gift", "operators"];
     if (topKeys.includes(key)) { if (me.role !== "top") fail("仅顶级账号可修改"); }
     else if (bankKeys.includes(key)) { if (me.role !== "top" && me.role !== "bank_admin") fail("仅银行管理账号可修改"); }
@@ -573,6 +611,136 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   },
 };
 
+// ---------- test-only tools ----------
+const isTestHost = (ctx: Ctx) => /localhost|127\.0\.0\.1|id-preview--|-dev\.lovable\.app|lovableproject\.com/.test(ctx.host ?? "");
+const DEMO_PW = "demo123456", DEMO_TOP_PW = "demo-top-password-123456";
+Object.assign(authed, {
+  async seed_demo(me: Acc, _a: any, ctx: Ctx) {
+    if (me.role !== "top") fail("仅顶级账号可用");
+    if (!isTestHost(ctx)) fail("演示数据仅能在测试环境（预览）使用");
+    const made: string[] = [];
+    const ids: Record<string, string> = {};
+    for (const r of ROLES) {
+      const username = `演示-${ROLE_LABEL_SHORT[r]}`;
+      const ex = await q(db.from("accounts").select("id").eq("username", username).maybeSingle());
+      ids[r] = ex?.id ?? (await createAccount(null, username, r === "top" ? DEMO_TOP_PW : DEMO_PW, r)).id;
+      made.push(username);
+    }
+    const curs = await allCur();
+    const xmy = curs.find((c) => c.code === "XMY")!, rmb = curs.find((c) => c.code === "RMB")!;
+    for (const r of ["bank", "engineer", "seller"]) for (const c of [xmy, rmb]) {
+      const cur: Cur = await q(db.from("currencies").select("*").eq("id", c.id).single());
+      await q(db.from("currencies").update({ visibility: { ...cur.visibility, [ids[r]]: "full" } }).eq("id", c.id));
+    }
+    await q(db.from("accounts").update({ permissions: { require_media: false } }).eq("id", ids.seller));
+    let pm = await q(db.from("payment_methods").select("id").eq("name", "演示-七彩星光支付").maybeSingle());
+    if (!pm) pm = await q(db.from("payment_methods").insert({ name: "演示-七彩星光支付", owner_id: ids.pay_admin, currency_ids: [xmy.id, rmb.id], fee_normal: 30 }).select().single());
+    const hasP = await q(db.from("products").select("id").eq("seller_id", ids.seller));
+    if (!hasP.length) await q(db.from("products").insert([
+      { seller_id: ids.seller, name: "演示-星光奶茶", description: "全世界发货", price: 10, currency_id: xmy.id, stock: 100, area: { type: "world" } },
+      { seller_id: ids.seller, name: "演示-七彩糖果", description: "人民币定价", price: 5, currency_id: rmb.id, stock: 100, area: { type: "world" } },
+    ]));
+    const rate = Math.pow(10, xmy.rate_log10);
+    await q(db.from("balances").upsert({ account_id: ids.normal, currency_id: rmb.id, amount: rate * 1000 }));
+    await log(me, "seed_demo", {});
+    return { accounts: made, password: DEMO_PW, topPassword: DEMO_TOP_PW };
+  },
+  async remove_demo(me: Acc) {
+    if (me.role !== "top") fail("仅顶级账号可用");
+    await db.from("payment_methods").delete().like("name", "演示-%");
+    await db.from("accounts").delete().like("username", "演示-%");
+    return { ok: true };
+  },
+  async run_e2e(me: Acc, _a: any, ctx: Ctx) {
+    if (me.role !== "top") fail("仅顶级账号可运行测试");
+    return runE2E(ctx);
+  },
+});
+const ROLE_LABEL_SHORT: Record<Role, string> = { top: "顶级", bank_admin: "银行管理", bank: "银行", engineer_admin: "工程师管理", engineer: "工程师", seller_admin: "卖家管理", seller: "卖家", pay_admin: "支付管理", normal: "普通" };
+
+async function runE2E(base: Ctx) {
+  const results: { name: string; pass: boolean; detail?: string }[] = [];
+  const tag = rnd(3);
+  const created: string[] = [];
+  const call = async (token: string | undefined, op: string, args?: any) => handle(op, args, { ...base, token });
+  const expectOk = async (name: string, fn: () => Promise<any>) => {
+    try { const r = await fn(); results.push({ name, pass: true }); return r; } catch (e) { results.push({ name, pass: false, detail: (e as Error).message }); return undefined; }
+  };
+  const expectFail = async (name: string, fn: () => Promise<any>) => {
+    try { await fn(); results.push({ name, pass: false, detail: "本应失败却成功了" }); } catch (e) { results.push({ name, pass: true, detail: (e as Error).message }); }
+  };
+  const tokens: Partial<Record<Role, string>> = {};
+  const ids: Partial<Record<Role, string>> = {};
+  let pmId = "";
+  try {
+    for (const r of ROLES) {
+      const username = `测试${tag}-${ROLE_LABEL_SHORT[r]}`, pw = r === "top" ? DEMO_TOP_PW : DEMO_PW;
+      const c = await createAccount(null, username, pw, r); created.push(c.id); ids[r] = c.id;
+      const t = await expectOk(`${ROLE_LABEL_SHORT[r]}账号：在自己的窗口登录`, () => call(undefined, "login", { role: r, username, password: pw }));
+      tokens[r] = t?.token;
+      const other = r === "normal" ? "top" : "normal";
+      await expectFail(`${ROLE_LABEL_SHORT[r]}账号：不能在其他窗口登录`, () => call(undefined, "login", { role: other, username, password: pw }));
+      await expectFail(`${ROLE_LABEL_SHORT[r]}账号：错误密码被拒绝`, () => call(undefined, "login", { role: r, username, password: pw + "x" }));
+    }
+    await expectFail("密码过短被拒绝", () => createAccount(null, `测试${tag}-短`, "123", "normal"));
+    await expectFail("顶级账号密码不足21位被拒绝", () => createAccount(null, `测试${tag}-短顶`, "12345678901234567890", "top"));
+    const raw = await q(db.from("accounts").select("password,password_hash").eq("id", ids.normal).single());
+    results.push({ name: "密码只以加密形式保存", pass: raw.password === "" && String(raw.password_hash).startsWith("pbkdf2$") });
+    const list = await call(tokens.top, "list_accounts");
+    results.push({ name: "顶级账号也看不到任何明文密码", pass: list.every((x: any) => !("password" in x) && !("password_hash" in x)) });
+    const ip = `test-${tag}`;
+    const sCtx = { ...base, ip };
+    await expectOk("普通窗口可以注册", async () => { const r = await handle("signup", { username: `测试${tag}-注册1`, password: DEMO_PW }, sCtx); const a = await byToken(r.token); created.push(a.id); });
+    await expectFail("同一入口一个月内不能再注册", () => handle("signup", { username: `测试${tag}-注册2`, password: DEMO_PW }, sCtx));
+    await expectFail("非普通窗口不能注册", () => handle("signup", { username: `测试${tag}-注册3`, password: DEMO_PW, role: "bank" }, { ...base, ip: ip + "b" }));
+    for (const r of ROLES) for (const target of ROLES) {
+      if (r === "top" && target !== "normal") continue;
+      const allowed = CAN_REGISTER[r].includes(target);
+      const name = `${ROLE_LABEL_SHORT[r]} ${allowed ? "可以" : "不能"}注册 ${ROLE_LABEL_SHORT[target]}`;
+      const fn = async () => { const x = await call(tokens[r], "create_account", { username: `测试${tag}-${r}-${target}`, password: target === "top" ? DEMO_TOP_PW : DEMO_PW, role: target }); created.push(x.id); };
+      await (allowed ? expectOk(name, fn) : expectFail(name, fn));
+    }
+    const nc = await call(tokens.normal, "list_currencies");
+    results.push({ name: "普通账号看不到任何货币和汇率", pass: Array.isArray(nc) && nc.length === 0 });
+    const nw = await call(tokens.normal, "my_wallet");
+    results.push({ name: "普通账号钱包隐藏", pass: nw.hidden === true });
+    await expectFail("普通账号不能兑换货币", () => call(tokens.normal, "exchange", { from: "x", to: "y", amount: 1 }));
+    await expectFail("非顶级账号不能封号", () => call(tokens.bank_admin, "ban", { id: ids.normal, banned: true }));
+    await expectFail("非顶级账号不能清零资产", () => call(tokens.bank, "zero_assets", { id: ids.normal }));
+    await expectFail("非顶级账号不能修改外观", () => call(tokens.bank_admin, "set_setting", { key: "theme", value: {} }));
+    await expectFail("银行账号不能创建货币", () => call(tokens.bank, "save_currency", { code: "ZZ" + tag, name: "x", symbol: "x", rate_expr: "1" }));
+    const curs = await allCur();
+    const xmy = curs.find((c) => c.code === "XMY")!;
+    const bw = await call(tokens.bank, "my_wallet");
+    results.push({ name: "银行账号注册赠送到账", pass: bw.rows.length > 0 });
+    await expectOk("设置卖家可见厦门元", () => call(tokens.seller_admin, "set_visibility", { currency_id: xmy.id, account_id: ids.seller, level: "full" }));
+    await expectOk("关闭卖家必须上传图片视频", () => call(tokens.seller_admin, "set_account_perms", { id: ids.seller, permissions: { require_media: false } }));
+    await expectFail("卖家定价超过100厦门元被拒绝", () => call(tokens.seller, "save_product", { name: "贵", price: 1000, currency_id: xmy.id, stock: 1, area: { type: "world" } }));
+    await expectOk("卖家上架商品", () => call(tokens.seller, "save_product", { name: `测试${tag}商品`, price: 10, currency_id: xmy.id, stock: 5, area: { type: "world" } }));
+    await expectOk("支付管理添加支付方式", () => call(tokens.pay_admin, "save_pm", { name: `测试${tag}支付`, fee_normal: 30 }));
+    const pm = await q(db.from("payment_methods").select("id").eq("name", `测试${tag}支付`).maybeSingle());
+    pmId = pm?.id ?? "";
+    await expectFail("支付管理不能自己设定支持的货币", async () => { await call(tokens.pay_admin, "save_pm", { id: pmId, currency_ids: [xmy.id] }); const x = await q(db.from("payment_methods").select("currency_ids").eq("id", pmId).single()); if (!x.currency_ids.length) throw new Error("未生效（正确）"); });
+    await expectOk("银行管理设置支付方式支持厦门元", () => call(tokens.bank_admin, "save_pm", { id: pmId, currency_ids: [xmy.id] }));
+    const shop = await call(tokens.normal, "list_shop", {});
+    const prod = shop.find((p: any) => p.name === `测试${tag}商品`);
+    results.push({ name: "普通账号在商店看到商品（无汇率）", pass: !!prod && prod.area === undefined });
+    const opts = prod ? await call(tokens.normal, "payment_options", { currency_id: prod.currency_id }) : [];
+    results.push({ name: "只显示能支付该货币的支付方式", pass: opts.some((o: any) => o.id === pmId) });
+    await expectFail("余额为0时购买提示余额不足", () => call(tokens.normal, "buy", { product_id: prod?.id, payment_method_id: pmId }));
+    await expectOk("银行管理给普通账号发钱", () => call(tokens.bank_admin, "give", { username: `测试${tag}-普通`, currency_id: xmy.id, amount: 100 }));
+    await expectOk("普通账号购买成功", () => call(tokens.normal, "buy", { product_id: prod?.id, payment_method_id: pmId }));
+    await expectOk("银行自动扣款并发消息", async () => { await call(tokens.bank, "deduct", { username: `测试${tag}-普通`, currency_id: xmy.id, amount: 1 }); const m = await call(tokens.normal, "messages", { with_id: ids.bank }); if (!m.length) throw new Error("没有收到通知"); });
+    await expectOk("顶级账号可以把普通账号设为顶级权限", async () => { await call(tokens.top, "set_account_perms", { id: ids.normal, permissions: { acts_as: "top" } }); const m = await call(tokens.normal, "me"); if (m.role !== "top") throw new Error("未生效"); });
+    await expectOk("顶级账号可以把顶级账号降为普通权限", async () => { await call(tokens.top, "set_account_perms", { id: ids.top, permissions: { acts_as: "normal" } }); const m = await call(tokens.top, "me"); if (m.role !== "normal") throw new Error("未生效"); });
+    await expectFail("被降为普通权限的顶级账号不能封号", () => call(tokens.top, "ban", { id: ids.bank, banned: true }));
+  } finally {
+    if (pmId) await db.from("payment_methods").delete().eq("id", pmId);
+    if (created.length) await db.from("accounts").delete().in("id", created);
+  }
+  return { results, passed: results.filter((r) => r.pass).length, total: results.length };
+}
+
 export async function handle(op: string, args: any, ctx: Ctx) {
   if (handlers[op]) return handlers[op](args ?? {}, ctx);
   const fn = authed[op] ?? fail(`未知操作 ${op}`);
@@ -586,7 +754,7 @@ export async function apiPay(body: any) {
   if (!k) fail("API key 无效");
   const pm = await q(db.from("payment_methods").select("*").eq("id", k.payment_method_id).single());
   const payer = await findUser(body.from_username);
-  if (payer.password !== body.password || payer.banned) fail("付款账号验证失败");
+  if (!(await verifyPw(payer, body.password)) || payer.banned) fail("付款账号验证失败");
   const payee = await findUser(body.to_username);
   const cur = await q(db.from("currencies").select("*").eq("code", body.currency_code).maybeSingle());
   if (!cur || !pm.currency_ids.includes(cur.id)) fail("该支付方式不支持此货币");
