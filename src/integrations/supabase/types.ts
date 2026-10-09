@@ -21,6 +21,7 @@ export type Database = {
           created_by: string | null
           id: string
           password: string
+          password_hash: string | null
           permissions: Json
           reset_token: string | null
           role: string
@@ -31,7 +32,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          password: string
+          password?: string
+          password_hash?: string | null
           permissions?: Json
           reset_token?: string | null
           role: string
@@ -43,6 +45,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           password?: string
+          password_hash?: string | null
           permissions?: Json
           reset_token?: string | null
           role?: string
