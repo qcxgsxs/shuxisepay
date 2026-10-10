@@ -148,7 +148,7 @@ export function LogsPanel({ me }: { me: Me }) {
 
 export const MENU_KEYS: Record<string, string> = {
   home: "首页棋盘", ...Object.fromEntries(ROLES.map((r) => [`login_${r}`, `${ROLE_LABEL[r]}登录页`])),
-  wallet: "钱包", accounts: "账号", perms: "权限", currency: "货币", pay: "支付方式", shop: "商店", seller: "我的商品", map: "地图", etc: "ETC", chat: "聊天", logs: "日志", look: "外观", reset: "重设密码页",
+  wallet: "钱包", accounts: "账号", perms: "权限", currency: "货币", pay: "支付方式", shop: "商店", seller: "我的商品", map: "地图", etc: "ETC", chat: "聊天", logs: "日志", look: "外观", tests: "测试", reset: "重设密码页",
 };
 
 export function AppearancePanel() {
