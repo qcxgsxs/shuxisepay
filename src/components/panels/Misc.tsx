@@ -191,7 +191,7 @@ export function AppearancePanel() {
               }} />{ROLE_LABEL[r]}
             </label>
           ))}
-          <label>每月上限<input className="field w-24" type="number" min={0} defaultValue={cfg.signup?.monthly_limit ?? 1} onBlur={(e) => save("signup", { roles: ["normal"], ...cfg.signup, monthly_limit: Number(e.target.value) })} /></label>
+          <label>每月上限<input className="field w-24" type="number" min={0} defaultValue={cfg.signup?.monthly_limit ?? 1} onBlur={(e) => save("signup", { roles: cfg.signup?.roles ?? ["normal"], monthly_limit: Number(e.target.value) })} /></label>
         </div>
       </Section>
       <Section title="风格与布局">
