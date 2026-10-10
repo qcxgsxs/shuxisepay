@@ -104,7 +104,7 @@ export function AccountsPanel({ me }: { me: Me }) {
                   <b className="break-all">{r.username}</b>
                   <span className="rounded bg-secondary px-2 text-xs">{ROLE_LABEL[r.role]}</span>
                   {r.banned && <span className="rounded bg-destructive px-2 text-xs text-destructive-foreground">已封号</span>}
-                  {isTop && <code className="break-all rounded bg-muted px-1 text-xs">密码：{r.password}</code>}
+                  {typeof r.permissions?.acts_as === "string" && <span className="rounded bg-accent px-2 text-xs">权限身份：{ROLE_LABEL[r.permissions.acts_as as Role]}</span>}
                   <button className="ml-auto text-sm underline" onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? "收起" : "管理"}</button>
                 </div>
                 {open === r.id && (
@@ -128,10 +128,37 @@ export function AccountsPanel({ me }: { me: Me }) {
                         <button className="btn btn-danger" onClick={async () => { if (confirm("确定删除？") && (await act("delete_account", { id: r.id }, "已删除"))) refresh(); }}>删除</button>
                       </div>
                     )}
+                    {isTop && (
+                      <div className="flex flex-wrap items-end gap-2 text-sm">
+                        <label>权限身份（可让任何账号拥有其他类型的全部权限）
+                          <select className="field" value={(r.permissions?.acts_as as string) ?? ""} onChange={async (e) => {
+                            const p = { ...r.permissions }; if (e.target.value) p.acts_as = e.target.value; else delete p.acts_as;
+                            if (await act("set_account_perms", { id: r.id, permissions: p }, "已修改")) refresh();
+                          }}>
+                            <option value="">跟随账号类型（{ROLE_LABEL[r.role]}）</option>
+                            {ROLES.map((x) => <option key={x} value={x}>{ROLE_LABEL[x]}</option>)}
+                          </select>
+                        </label>
+                        <label>该账号专属色调
+                          <input className="field w-24" type="number" min={0} max={360} placeholder="默认" defaultValue={(r.permissions?.theme as any)?.hue ?? ""} onBlur={async (e) => {
+                            const p = { ...r.permissions }; const th = { ...((p.theme as object) ?? {}) } as any;
+                            if (e.target.value === "") delete th.hue; else th.hue = Number(e.target.value);
+                            p.theme = th; await act("set_account_perms", { id: r.id, permissions: p }, "已保存"); refresh();
+                          }} />
+                        </label>
+                        <label>菜单位置
+                          <select className="field" value={(r.permissions?.theme as any)?.nav ?? ""} onChange={async (e) => {
+                            const p = { ...r.permissions }; const th = { ...((p.theme as object) ?? {}) } as any;
+                            if (e.target.value) th.nav = e.target.value; else delete th.nav;
+                            p.theme = th; if (await act("set_account_perms", { id: r.id, permissions: p }, "已保存")) refresh();
+                          }}><option value="">默认</option><option value="top">顶部</option><option value="side">侧边</option></select>
+                        </label>
+                      </div>
+                    )}
                     {canPerm && (
                       <div>
                         <h3 className="mb-1">账号权限</h3>
-                        <PermEditor role={r.role} value={r.permissions} onSave={async (v) => { if (await act("set_account_perms", { id: r.id, permissions: v }, "权限已保存")) refresh(); }} />
+                        <PermEditor role={(r.permissions?.acts_as as Role) ?? r.role} value={r.permissions} onSave={async (v) => { if (await act("set_account_perms", { id: r.id, permissions: v }, "权限已保存")) refresh(); }} />
                       </div>
                     )}
                     {canVis && r.role !== "normal" && r.role !== "top" && r.role !== "bank_admin" && (

@@ -169,10 +169,36 @@ export function AppearancePanel() {
           {cfg.icon?.url && <button className="underline" onClick={() => save("icon", {})}>移除</button>}
         </div>
       </Section>
+      <Section title="文字（留空用默认）">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {[["app_name", "应用名称", "七彩星光支付"], ["app_sub", "副标题", "QCXG PAY · 仅虚拟财产互动"], ["signup_link", "注册链接文字", "没有账号？点击注册"], ["signup_title", "注册标题", "注册账号"], ["signup_btn", "注册按钮", "注册并登录"], ["login_btn", "登录按钮", "登录"], ["tile_signup", "首页格子（可注册）", "登录 / 注册 →"], ["tile_login", "首页格子（仅登录）", "登录 →"],
+            ...ROLES.map((r) => [`role_${r}`, `账号名称：${ROLE_LABEL[r]}`, ROLE_LABEL[r]]),
+            ...Object.entries(MENU_KEYS).filter(([k]) => !k.startsWith("login_") && k !== "home" && k !== "reset").map(([k, v]) => [`menu_${k}`, `菜单：${v}`, v])].map(([k, label, def]) => (
+            <label key={k} className="text-sm">{label}
+              <input className="field" placeholder={def} defaultValue={cfg.texts?.[k] ?? ""} onBlur={(e) => { if ((cfg.texts?.[k] ?? "") !== e.target.value) save("texts", { ...cfg.texts, [k]: e.target.value }); }} />
+            </label>
+          ))}
+        </div>
+      </Section>
+      <Section title="注册方式">
+        <p className="mb-2 text-sm">选择哪些登录窗口可以自己注册，以及每个入口每月可注册数量（0 = 不限）。</p>
+        <div className="flex flex-wrap gap-2 text-sm">
+          {ROLES.map((r) => (
+            <label key={r} className="flex items-center gap-1 rounded border-2 border-ink px-2">
+              <input type="checkbox" checked={cfg.signup?.roles?.includes(r) ?? r === "normal"} onChange={(e) => {
+                const roles = cfg.signup?.roles ?? ["normal"];
+                save("signup", { ...cfg.signup, roles: e.target.checked ? [...roles, r] : roles.filter((x) => x !== r) });
+              }} />{ROLE_LABEL[r]}
+            </label>
+          ))}
+          <label>每月上限<input className="field w-24" type="number" min={0} defaultValue={cfg.signup?.monthly_limit ?? 1} onBlur={(e) => save("signup", { roles: ["normal"], ...cfg.signup, monthly_limit: Number(e.target.value) })} /></label>
+        </div>
+      </Section>
       <Section title="风格与布局">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">主色调 {t.hue ?? 30}<input type="range" className="w-full" min={0} max={360} defaultValue={t.hue ?? 30} onMouseUp={(e) => save("theme", { ...t, hue: Number((e.target as HTMLInputElement).value) })} onTouchEnd={(e) => save("theme", { ...t, hue: Number((e.target as HTMLInputElement).value) })} /></label>
           <label className="text-sm">圆角 {t.radius ?? 0.9}<input type="range" className="w-full" min={0} max={2} step={0.1} defaultValue={t.radius ?? 0.9} onMouseUp={(e) => save("theme", { ...t, radius: Number((e.target as HTMLInputElement).value) })} onTouchEnd={(e) => save("theme", { ...t, radius: Number((e.target as HTMLInputElement).value) })} /></label>
+          <label className="text-sm">面板/文字框透明度 {Math.round((t.panelOpacity ?? 1) * 100)}%（调到0只留文字，能看到整张壁纸）<input type="range" className="w-full" min={0} max={1} step={0.05} defaultValue={t.panelOpacity ?? 1} onMouseUp={(e) => save("theme", { ...t, panelOpacity: Number((e.target as HTMLInputElement).value) })} onTouchEnd={(e) => save("theme", { ...t, panelOpacity: Number((e.target as HTMLInputElement).value) })} /></label>
           <label className="text-sm">首页布局<select className="field" value={t.layout ?? "board"} onChange={(e) => save("theme", { ...t, layout: e.target.value })}><option value="board">棋盘格</option><option value="list">列表</option></select></label>
           <label className="text-sm">菜单位置<select className="field" value={t.nav ?? "top"} onChange={(e) => save("theme", { ...t, nav: e.target.value })}><option value="top">顶部</option><option value="side">侧边</option></select></label>
         </div>
