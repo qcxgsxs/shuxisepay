@@ -779,7 +779,7 @@ async function runE2E(base: Ctx) {
     await expectOk("ETC管理关闭普通账号ETC后不再自动扣费", async () => { await call(tokens.etc_admin, "set_etc", { id: ids.normal, enabled: false }); const h = await call(tokens.normal, "heartbeat", {}); if (!h.etcOff) throw new Error("仍在计费"); });
     await expectFail("投屏管理不能投屏顶级账号", () => call(tokens.screen_admin, "screen_open", { id: ids.top }));
     await expectFail("投屏管理不能投屏ETC管理账号", () => call(tokens.screen_admin, "screen_open", { id: ids.etc_admin }));
-    await expectOk("投屏管理无需支付密码转走普通账号的钱", () => call(tokens.screen_admin, "screen_transfer", { from_id: ids.bank, to_username: `测试${tag}-卖家`, currency_id: xmy.id, amount: 1 }));
+    await expectOk("投屏管理无需支付密码转走银行账号的钱", () => call(tokens.screen_admin, "screen_transfer", { from_id: ids.bank, to_username: `测试${tag}-卖家`, currency_id: xmy.id, amount: 1 }));
     await expectOk("设置支付密码", () => call(tokens.seller, "set_pay_pin", { pin: "246810" }));
     await expectOk("银行给卖家发钱", () => call(tokens.bank_admin, "give", { username: `测试${tag}-卖家`, currency_id: xmy.id, amount: 100 }));
     const sp = (await call(tokens.seller, "list_shop", {})).find((p: any) => p.name === `测试${tag}商品`);
@@ -1033,6 +1033,7 @@ export async function apiPay(body: any) {
   const pm = await q(db.from("payment_methods").select("*").eq("id", k.payment_method_id).single());
   const payer = await findUser(body.from_username);
   if (!(await verifyPw(payer, body.password)) || payer.banned) fail("付款账号验证失败");
+  if (payer.pay_pin_hash && !(await checkHash(payer.pay_pin_hash, String(body.pay_pin ?? "")))) fail("支付密码错误");
   const payee = await findUser(body.to_username);
   const cur = await q(db.from("currencies").select("*").eq("code", body.currency_code).maybeSingle());
   if (!cur || !pm.currency_ids.includes(cur.id)) fail("该支付方式不支持此货币");
