@@ -17,6 +17,7 @@
 - Exchange rates are stored as log10 (`rate_log10`) so huge expressions (tetration operators) stay computable; overflow is capped and marked as estimated.
 - Uploaded media lives in a private bucket and is served via `/api/media/$`.
 - Maps use Leaflet + OpenStreetMap (no API key), loaded only in the browser.
+- Map GPS coordinates set the initial view only; later updates never recenter, and manual pan/zoom prevents a late initial fix from interrupting browsing.
 - Multi-account mode keeps several session tokens in localStorage with one active; switching clears the query cache.
 - End-to-end checks run server-side (`run_e2e`) with temporary accounts that are always deleted; demo seeding is refused unless the request host is a preview/localhost host.
 - Negative exchange rates are stored as `currencies.rate_sign = -1` with log10 of the absolute value; negative-rate balances are debts, excluded from automatic payment and settled only via `settle_debt`.
