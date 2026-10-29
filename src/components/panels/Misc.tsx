@@ -79,7 +79,7 @@ export function MapPanel({ me }: { me: Me }) {
 export function EtcPanel() {
   const api = useApi();
   const pos = useGps();
-  const [on, setOn] = useState(false); // detailed log view; background charging always runs
+  const [on] = useState(false); // background charging (BackgroundEtc) replaces the manual toggle
   const [events, setEvents] = useState<string[]>([]);
   const [ip, setIp] = useState("");
   const posRef = useRef(pos);
@@ -100,7 +100,6 @@ export function EtcPanel() {
   return (
     <Section title="ETC 自动扣费">
       <p className="mb-2 text-sm">打开APP后会自动后台定位：到达收费站、停车场、酒店或命中IP计费时，会给每个分身都扣一遍费，没钱会扣成负数。ETC 开关由 ETC 管理账号控制。</p>
-      <button className="btn btn-ghost" onClick={() => setOn(!on)}>{on ? "隐藏本账号扣费记录" : "查看本账号扣费记录"}</button>
       <p className="mt-2 text-xs text-muted-foreground">位置：{pos ? `${pos[0].toFixed(5)}, ${pos[1].toFixed(5)}` : "未获取"} · IP：{ip || "-"}</p>
       <ul className="mt-2 space-y-1 text-sm">{events.map((e, i) => <li key={i}>{e}</li>)}</ul>
     </Section>
