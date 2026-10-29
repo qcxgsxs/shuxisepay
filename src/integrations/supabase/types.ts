@@ -19,9 +19,13 @@ export type Database = {
           banned: boolean
           created_at: string
           created_by: string | null
+          etc_enabled: boolean
           id: string
+          must_reset: boolean
           password: string
           password_hash: string | null
+          pay_pin_hash: string | null
+          pay_reset_token: string | null
           permissions: Json
           reset_token: string | null
           role: string
@@ -31,9 +35,13 @@ export type Database = {
           banned?: boolean
           created_at?: string
           created_by?: string | null
+          etc_enabled?: boolean
           id?: string
+          must_reset?: boolean
           password?: string
           password_hash?: string | null
+          pay_pin_hash?: string | null
+          pay_reset_token?: string | null
           permissions?: Json
           reset_token?: string | null
           role: string
@@ -43,9 +51,13 @@ export type Database = {
           banned?: boolean
           created_at?: string
           created_by?: string | null
+          etc_enabled?: boolean
           id?: string
+          must_reset?: boolean
           password?: string
           password_hash?: string | null
+          pay_pin_hash?: string | null
+          pay_reset_token?: string | null
           permissions?: Json
           reset_token?: string | null
           role?: string
@@ -123,6 +135,7 @@ export type Database = {
           name: string
           rate_expr: string
           rate_log10: number
+          rate_sign: number
           symbol: string
           visibility: Json
         }
@@ -133,6 +146,7 @@ export type Database = {
           name: string
           rate_expr?: string
           rate_log10?: number
+          rate_sign?: number
           symbol?: string
           visibility?: Json
         }
@@ -143,6 +157,7 @@ export type Database = {
           name?: string
           rate_expr?: string
           rate_log10?: number
+          rate_sign?: number
           symbol?: string
           visibility?: Json
         }
@@ -161,6 +176,7 @@ export type Database = {
           lng: number | null
           name: string
           radius_m: number
+          rules: Json
         }
         Insert: {
           created_at?: string
@@ -174,6 +190,7 @@ export type Database = {
           lng?: number | null
           name: string
           radius_m?: number
+          rules?: Json
         }
         Update: {
           created_at?: string
@@ -187,6 +204,7 @@ export type Database = {
           lng?: number | null
           name?: string
           radius_m?: number
+          rules?: Json
         }
         Relationships: [
           {
@@ -406,17 +424,32 @@ export type Database = {
         Row: {
           account_id: string
           created_at: string
+          id: string
+          impersonated_by: string | null
+          ip: string | null
+          last_seen: string
           token: string
+          user_agent: string | null
         }
         Insert: {
           account_id: string
           created_at?: string
+          id?: string
+          impersonated_by?: string | null
+          ip?: string | null
+          last_seen?: string
           token: string
+          user_agent?: string | null
         }
         Update: {
           account_id?: string
           created_at?: string
+          id?: string
+          impersonated_by?: string | null
+          ip?: string | null
+          last_seen?: string
           token?: string
+          user_agent?: string | null
         }
         Relationships: [
           {
