@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { addSession, getToken, listSessions, removeSession, useApi, useApiAs } from "@/lib/client";
 import { FACILITY_KINDS, ROLE_LABEL, type FacilityKind, type Role } from "@/lib/roles";
@@ -276,5 +276,85 @@ export function FacilityEditor({ fac, curs, onClose }: { fac: any; curs: any[]; 
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------- Background location: charge every 分身 ---------- */
+export function BackgroundEtc() {
+  const apiAs = useApiAs();
+  const [pos, setPos] = useState<[number, number] | null>(null);
+  const [err, setErr] = useState("");
+  const posRef = useRef(pos);
+  posRef.current = pos;
+  useEffect(() => {
+    if (!navigator.geolocation) { setErr("此浏览器不支持定位"); return; }
+    const id = navigator.geolocation.watchPosition(
+      (p) => { setPos([p.coords.latitude, p.coords.longitude]); setErr(""); },
+      (e) => setErr(e.code === 1 ? "未允许定位" : "定位失败"),
+      { enableHighAccuracy: true, maximumAge: 10000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+  useEffect(() => {
+    const tick = async () => {
+      const p = posRef.current;
+      for (const s of listSessions()) {
+        try {
+          const r = await apiAs<{ events: string[] }>(s.token, "heartbeat", { lat: p?.[0], lng: p?.[1] });
+          for (const e of r.events) toast(`${s.username}：${e}`);
+        } catch { /* session gone */ }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 15000);
+    return () => clearInterval(id);
+  }, [apiAs]);
+  return <p className="px-3 pb-1 text-center text-[10px] text-muted-foreground">后台定位：{err || (pos ? `${pos[0].toFixed(4)}, ${pos[1].toFixed(4)}` : "定位中…")} · 所有分身自动计费</p>;
+}
+
+/* ---------- Discount cards ---------- */
+const CARD_MODES: Record<string, string> = { none: "无优待卡", pct: "每次按百分比", fixed: "每次固定金额", free_then_pct: "免费N次后按百分比", per_min: "按分钟计价", free: "一直免费" };
+export function CardPanel() {
+  const api = useApi();
+  const act = useAction();
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState("");
+  const [edit, setEdit] = useState<Record<string, any>>({});
+  const { data: rows = [] } = useQuery<any[]>({ queryKey: ["cards"], queryFn: () => api("card_list") });
+  const desc = (c: any) => !c ? "无" : c.mode === "pct" ? `每次${c.pct}%` : c.mode === "fixed" ? `每次${c.amount}` : c.mode === "free_then_pct" ? `免费${c.free_count}次（已用${c.used}）后${c.pct}%` : c.mode === "per_min" ? `每分钟${c.per_min}` : "一直免费";
+  return (
+    <Section title="优待卡" right={<input className="field w-40" placeholder="搜索" value={filter} onChange={(e) => setFilter(e.target.value)} />}>
+      <p className="mb-2 text-sm text-muted-foreground">优待卡用于收费站、停车场、酒店、IP 计费等自动扣费。百分比低于100%是打折，高于100%就比原价还贵。金额按该收费项目的货币计算。</p>
+      <div className="space-y-2">
+        {rows.filter((r) => !filter || r.username.includes(filter)).map((r) => {
+          const e = edit[r.id];
+          return (
+            <div key={r.id} className="rounded border-2 border-ink bg-card p-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <b className="break-all">{r.username}</b>
+                <span className="text-xs text-muted-foreground">{ROLE_LABEL[r.role as Role]}</span>
+                <span className="text-xs">当前：{desc(r.card)}</span>
+                <button className="btn btn-ghost ml-auto" onClick={() => setEdit({ ...edit, [r.id]: e ? undefined : { mode: "pct", pct: 50, amount: 25, free_count: 5, per_min: 2, ...(r.card ?? {}) } })}>{e ? "收起" : "设置"}</button>
+              </div>
+              {e && (
+                <div className="mt-2 flex flex-wrap items-end gap-2 border-t-2 border-dashed border-ink pt-2">
+                  <select className="field w-44" value={e.mode} onChange={(x) => setEdit({ ...edit, [r.id]: { ...e, mode: x.target.value } })}>
+                    {Object.entries(CARD_MODES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                  {e.mode === "free_then_pct" && <label>免费次数<input className="field w-20" type="number" value={e.free_count} onChange={(x) => setEdit({ ...edit, [r.id]: { ...e, free_count: x.target.value } })} /></label>}
+                  {(e.mode === "pct" || e.mode === "free_then_pct") && <label>百分比%<input className="field w-24" type="number" value={e.pct} onChange={(x) => setEdit({ ...edit, [r.id]: { ...e, pct: x.target.value } })} /></label>}
+                  {e.mode === "fixed" && <label>每次金额<input className="field w-24" type="number" value={e.amount} onChange={(x) => setEdit({ ...edit, [r.id]: { ...e, amount: x.target.value } })} /></label>}
+                  {e.mode === "per_min" && <label>每分钟金额<input className="field w-24" type="number" value={e.per_min} onChange={(x) => setEdit({ ...edit, [r.id]: { ...e, per_min: x.target.value } })} /></label>}
+                  {e.mode === "free_then_pct" && <label className="flex items-center gap-1"><input type="checkbox" checked={!!e.reset} onChange={(x) => setEdit({ ...edit, [r.id]: { ...e, reset: x.target.checked } })} />重置已用次数</label>}
+                  <button className="btn" onClick={async () => {
+                    if (await act("set_card", { id: r.id, card: e }, "优待卡已保存")) { setEdit({ ...edit, [r.id]: undefined }); qc.invalidateQueries({ queryKey: ["cards"] }); }
+                  }}>保存</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
