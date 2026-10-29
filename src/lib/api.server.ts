@@ -577,13 +577,24 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     const pres: any[] = await q(db.from("presence").select("*").eq("account_id", me.id));
     const now = Date.now();
     const events: string[] = [];
-    const charge = async (f: any, amount: number, reason: string) => {
+    const cards = await getSetting<Record<string, any>>("discount_cards", {});
+    let card = cards[me.id];
+    const charge = async (f: any, amount: number, reason: string, secs = 60, first = true) => {
       amount = amount * effMult(f);
-      if (!f.currency_id || amount <= 0 || f.engineer_id === me.id) return;
+      if (!f.currency_id || f.engineer_id === me.id) return;
+      let note = "";
+      if (card && card.mode && card.mode !== "none") {
+        const r = applyCard(card, amount, secs, first);
+        amount = r.amount; note = `（优待卡：${r.note}）`;
+        if (r.used !== card.used) { card = { ...card, used: r.used }; cards[me.id] = card; await setSetting("discount_cards", cards); }
+      }
+      if (!(amount > 0)) { if (note) events.push(`${f.name}：${reason}${note}`); return; }
       const got = await takeMoney(me.id, f.currency_id, amount, 0, true);
-      if (got > 0) await addBal(f.engineer_id, f.currency_id, got);
-      await log(me, "auto_charge", { facility: f.name, kind: f.kind, amount: got, reason });
-      events.push(`${f.name}：${reason}`);
+      const debt = amount - got;
+      if (debt > 1e-9) await addBal(me.id, f.currency_id, -debt); // no money → balance goes negative
+      await addBal(f.engineer_id, f.currency_id, amount);
+      await log(me, "auto_charge", { facility: f.name, kind: f.kind, amount, debt, reason, card: card?.mode ?? null });
+      events.push(`${f.name}：${reason}${note}${debt > 1e-9 ? "（余额不足，已扣成负数）" : ""}`);
     };
     for (const f of facs) {
       const p = pres.find((x) => x.facility_id === f.id);
@@ -594,21 +605,21 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
       if (inside && !p) {
         await q(db.from("presence").insert({ account_id: me.id, facility_id: f.id }));
         if (f.kind === "toll") await charge(f, f.fee, "通过收费站自动扣费");
-        else events.push(`${f.name}：开始计费`);
+        else { events.push(`${f.name}：开始计费`); if (card && (card.mode === "fixed" || card.mode === "free_then_pct")) await charge(f, f.kind === "ip" ? f.fee : 0, "入场", 0, true); }
         if (f.kind === "hotel") { await log(me, "hotel_enter", { facility_id: f.id }); await maybeAiPrice(f); }
       } else if (inside && p && f.kind !== "toll") {
         const secs = (now - new Date(p.last_charged).getTime()) / 1000;
         const amount = f.kind === "parking" ? (f.fee * secs) / 60 : f.kind === "hotel" ? (f.fee * secs) / 3600 : f.fee * secs; // parking/min, hotel/hour, IP/sec
-        await charge(f, amount, f.kind === "parking" ? "停车计费" : f.kind === "hotel" ? "酒店计费" : "IP计费");
+        await charge(f, amount, f.kind === "parking" ? "停车计费" : f.kind === "hotel" ? "酒店计费" : "IP计费", secs, false);
         await q(db.from("presence").update({ last_charged: new Date(now).toISOString() }).eq("account_id", me.id).eq("facility_id", f.id));
       } else if (!inside && p) {
         if (f.kind === "parking") {
           const secs = (now - new Date(p.last_charged).getTime()) / 1000;
-          await charge(f, (f.fee * secs) / 60, "离开停车场，停止计费");
+          await charge(f, (f.fee * secs) / 60, "离开停车场，停止计费", secs, false);
         }
         if (f.kind === "hotel") {
           const secs = (now - new Date(p.last_charged).getTime()) / 1000;
-          await charge(f, (f.fee * secs) / 3600, "退房，停止计费");
+          await charge(f, (f.fee * secs) / 3600, "退房，停止计费", secs, false);
           await log(me, "hotel_leave", { facility_id: f.id });
         }
         await q(db.from("presence").delete().eq("account_id", me.id).eq("facility_id", f.id));
@@ -797,6 +808,24 @@ async function runE2E(base: Ctx) {
   return { results, passed: results.filter((r) => r.pass).length, total: results.length };
 }
 
+// ---------- discount cards ----------
+/** Apply a discount card to one charge. `first` = start of a visit (toll pass / entering). pct>100 makes it pricier. */
+export function applyCard(card: any, amount: number, secs: number, first: boolean): { amount: number; used: number; note: string } {
+  const used = Number(card.used ?? 0);
+  const pct = Math.max(0, Number(card.pct ?? 100)) / 100;
+  switch (card.mode) {
+    case "free": return { amount: 0, used, note: "一直免费" };
+    case "pct": return { amount: amount * pct, used, note: `按${card.pct}%收费` };
+    case "fixed": return first ? { amount: Number(card.amount ?? 0), used, note: `每次${card.amount}` } : { amount: 0, used, note: "已按次收费" };
+    case "free_then_pct":
+      if (first && used < Number(card.free_count ?? 0)) return { amount: 0, used: used + 1, note: `免费第${used + 1}/${card.free_count}次` };
+      if (!first && used <= Number(card.free_count ?? 0) && card._freeVisit) return { amount: 0, used, note: "免费中" };
+      return { amount: amount * pct, used, note: `按${card.pct}%收费` };
+    case "per_min": return { amount: (Number(card.per_min ?? 0) * secs) / 60, used, note: `每分钟${card.per_min}` };
+    default: return { amount, used, note: "" };
+  }
+}
+
 // ---------- pricing rules ----------
 function cnDate(t = Date.now()) { return new Date(t + 8 * 3600000).toISOString().slice(0, 10); }
 /** Price multiplier from a facility's detailed rules (special dates > holidays > AI hotel pricing). */
@@ -910,6 +939,27 @@ Object.assign(authed, {
     if (!ok) fail("只有ETC管理账号可以控制ETC开关");
     await q(db.from("accounts").update({ etc_enabled: !!enabled }).eq("id", id));
     await log(me, "set_etc", { target: t.username, enabled: !!enabled });
+    return { ok: true };
+  },
+  // discount cards
+  async card_list(me: Acc) {
+    if (me.role !== "top" && me.role !== "card_admin") fail("仅优待卡设置账号可用");
+    const rows: any[] = await q(db.from("accounts").select("id,username,role").order("created_at"));
+    const cards = await getSetting<Record<string, any>>("discount_cards", {});
+    return rows.map((r) => ({ ...r, card: cards[r.id] ?? null }));
+  },
+  async set_card(me: Acc, { id, card }: any) {
+    if (me.role !== "top" && me.role !== "card_admin") fail("仅优待卡设置账号可用");
+    const t: Acc = await q(db.from("accounts").select("id,username").eq("id", id).single());
+    const cards = await getSetting<Record<string, any>>("discount_cards", {});
+    if (!card || card.mode === "none") delete cards[id];
+    else {
+      const modes = ["pct", "fixed", "free_then_pct", "per_min", "free"];
+      if (!modes.includes(card.mode)) fail("优待卡类型无效");
+      cards[id] = { mode: card.mode, pct: Math.max(0, Number(card.pct ?? 100)), amount: Math.max(0, Number(card.amount ?? 0)), free_count: Math.max(0, Math.floor(Number(card.free_count ?? 0))), per_min: Math.max(0, Number(card.per_min ?? 0)), used: card.reset ? 0 : Number(cards[id]?.used ?? 0) };
+    }
+    await setSetting("discount_cards", cards);
+    await log(me, "set_card", { target: t.username, card: cards[id] ?? null });
     return { ok: true };
   },
   // screen admin
