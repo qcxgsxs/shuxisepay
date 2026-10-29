@@ -1,3 +1,4 @@
+import { AiAssistant } from "./Extra";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useApi } from "@/lib/client";
@@ -27,9 +28,11 @@ export function ShopPanel() {
   const [buying, setBuying] = useState<any>(null);
   const [pms, setPms] = useState<any[]>([]);
   const [qty, setQty] = useState(1);
+  const [pin, setPin] = useState("");
   const list = prods.filter((p) => !q || p.name.includes(q)).sort((a, b) => sort === "price" ? a.price - b.price : a.name.localeCompare(b.name));
   return (
     <Section title="商店" right={<div className="flex gap-2"><input className="field w-32" placeholder="搜索比价" value={q} onChange={(e) => setQ(e.target.value)} /><select className="field w-28" value={sort} onChange={(e) => setSort(e.target.value)}><option value="price">按价格</option><option value="name">按名称</option></select></div>}>
+      <AiAssistant pos={pos} onPick={async (p) => { setBuying(p); setQty(1); setPms((await act<any[]>("payment_options", { currency_id: p.currency_id })) ?? []); }} />
       {!pos && <p className="mb-2 text-sm text-muted-foreground">开启定位后才能看到限定区域发货的商品。</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         {list.map((p) => (
@@ -52,10 +55,11 @@ export function ShopPanel() {
             <h3 className="text-xl">购买 {buying.name}</h3>
             <label className="text-sm">数量 <input className="field" type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} /></label>
             <p>合计：{buying.symbol} {fmtAmount(buying.price * qty)}</p>
+            <input className="field" type="password" inputMode="numeric" placeholder="支付密码（已设置时必填）" value={pin} onChange={(e) => setPin(e.target.value)} />
             {!pms.length && <p className="text-destructive">没有可支付该货币的支付方式</p>}
             {pms.map((m) => (
               <button key={m.id} className="btn w-full" onClick={async () => {
-                if (await act("buy", { product_id: buying.id, payment_method_id: m.id, qty, lat: pos?.[0], lng: pos?.[1] }, "购买成功")) { setBuying(null); qc.invalidateQueries({ queryKey: ["shop"] }); }
+                if (await act("buy", { product_id: buying.id, payment_method_id: m.id, qty, lat: pos?.[0], lng: pos?.[1], pay_pin: pin }, "购买成功")) { setBuying(null); setPin(""); qc.invalidateQueries({ queryKey: ["shop"] }); }
               }}>用 {m.name} 支付</button>
             ))}
           </div>

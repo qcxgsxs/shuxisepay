@@ -5,6 +5,7 @@ import { FACILITY_KINDS, ROLE_LABEL, ROLES, type FacilityKind, type Role } from 
 import { MapView } from "@/components/MapView";
 import { Section, UploadButton, useAction } from "@/components/ui-bits";
 import { useGps } from "./Commerce";
+import { FacilityEditor } from "./Extra";
 import type { Me } from "@/routes/app";
 import type { Config } from "@/components/Shell";
 
@@ -21,6 +22,9 @@ export function MapPanel({ me }: { me: Me }) {
   const allowed = (Object.keys(FACILITY_KINDS) as FacilityKind[]).filter((k) => me.role === "top" || me.perms[`build_${k}`]);
   const empty = { kind: allowed[0] ?? "toll", name: "", lat: null as number | null, lng: null as number | null, radius_m: 50, fee: 1, currency_id: "", ip: "" };
   const [f, setF] = useState(empty);
+  const [editing, setEditing] = useState<any>(null);
+  const canEditAll = me.role === "top" || me.role === "engineer_admin";
+  const mine = facs.filter((x) => canEditAll || x.engineer_id === me.id);
   return (
     <>
       <Section title="地图">
@@ -40,9 +44,9 @@ export function MapPanel({ me }: { me: Me }) {
               <input className="field" placeholder="名称" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
               {f.kind === "ip" ? <input className="field" placeholder="IP，如 168.84.80.98" value={f.ip} onChange={(e) => setF({ ...f, ip: e.target.value })} />
                 : <span className="self-center text-sm">{f.lat != null ? `已选点 ${f.lat.toFixed(5)}, ${f.lng!.toFixed(5)}` : "点击地图选点"}</span>}
-              {(f.kind === "toll" || f.kind === "parking") && <label className="text-sm">感应范围（米）<input className="field" type="number" value={f.radius_m} onChange={(e) => setF({ ...f, radius_m: Number(e.target.value) })} /></label>}
-              {["toll", "parking", "ip"].includes(f.kind) && <>
-                <label className="text-sm">{f.kind === "toll" ? "每次收费" : f.kind === "parking" ? "每分钟收费" : "每秒收费"}（上限 {me.perms.max_fee ?? "∞"}）<input className="field" type="number" value={f.fee} onChange={(e) => setF({ ...f, fee: Number(e.target.value) })} /></label>
+              {(f.kind === "toll" || f.kind === "parking" || f.kind === "hotel") && <label className="text-sm">感应范围（米）<input className="field" type="number" value={f.radius_m} onChange={(e) => setF({ ...f, radius_m: Number(e.target.value) })} /></label>}
+              {["toll", "parking", "ip", "hotel"].includes(f.kind) && <>
+                <label className="text-sm">{f.kind === "toll" ? "每次收费" : f.kind === "parking" ? "每分钟收费" : f.kind === "hotel" ? "每小时收费" : "每秒收费"}（上限 {me.perms.max_fee ?? "∞"}）<input className="field" type="number" value={f.fee} onChange={(e) => setF({ ...f, fee: Number(e.target.value) })} /></label>
                 <label className="text-sm">收费货币<select className="field" value={f.currency_id} onChange={(e) => setF({ ...f, currency_id: e.target.value })}><option value="">选择</option>{curs.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label>
               </>}
               <button className="btn sm:col-span-3" onClick={async () => {
@@ -51,16 +55,23 @@ export function MapPanel({ me }: { me: Me }) {
               }}>建设</button>
             </div>
           )}
-          <div className="mt-3 space-y-1 text-sm">
-            {facs.filter((x) => me.role === "top" || x.engineer_id === me.id).map((x) => (
-              <div key={x.id} className="flex gap-2 border-b border-dashed py-1">
-                <span>{FACILITY_KINDS[x.kind as FacilityKind]} · {x.name} {x.ip ?? ""} · 收费 {x.fee} {x.currencies?.code ?? ""}</span>
-                <button className="ml-auto underline" onClick={async () => { if (await act("delete_facility", { id: x.id }, "已拆除")) qc.invalidateQueries({ queryKey: ["facs"] }); }}>拆除</button>
+        </Section>
+      )}
+      {(canBuild || canEditAll) && (
+        <Section title="收费项目（收费站 / 酒店 / 停车场等）">
+          <div className="space-y-1 text-sm">
+            {!mine.length && <p className="text-muted-foreground">暂无</p>}
+            {mine.map((x) => (
+              <div key={x.id} className="flex flex-wrap gap-2 border-b border-dashed py-1">
+                <span>{FACILITY_KINDS[x.kind as FacilityKind]} · {x.name} {x.ip ?? ""} · 收费 {x.fee} {x.currencies?.code ?? ""}{x.rules?.ai ? ` · AI倍数 ×${Number(x.rules.ai_mult ?? 1).toFixed(2)}` : ""}</span>
+                <button className="ml-auto underline" onClick={() => setEditing(x)}>详细设置</button>
+                {(me.role === "top" || x.engineer_id === me.id) && <button className="underline" onClick={async () => { if (await act("delete_facility", { id: x.id }, "已拆除")) qc.invalidateQueries({ queryKey: ["facs"] }); }}>拆除</button>}
               </div>
             ))}
           </div>
         </Section>
       )}
+      {editing && <FacilityEditor fac={editing} curs={curs} onClose={() => { setEditing(null); qc.invalidateQueries({ queryKey: ["facs"] }); }} />}
     </>
   );
 }
@@ -148,7 +159,7 @@ export function LogsPanel({ me }: { me: Me }) {
 
 export const MENU_KEYS: Record<string, string> = {
   home: "首页棋盘", ...Object.fromEntries(ROLES.map((r) => [`login_${r}`, `${ROLE_LABEL[r]}登录页`])),
-  wallet: "钱包", accounts: "账号", perms: "权限", currency: "货币", pay: "支付方式", shop: "商店", seller: "我的商品", map: "地图", etc: "ETC", chat: "聊天", logs: "日志", look: "外观", tests: "测试", reset: "重设密码页",
+  wallet: "钱包", accounts: "账号", perms: "权限", currency: "货币", pay: "支付方式", shop: "商店", seller: "我的商品", map: "地图", etc: "ETC", chat: "聊天", logs: "日志", look: "外观", tests: "测试", etcadm: "ETC管理", screen: "投屏", devices: "安全与设备", reset: "重设密码页",
 };
 
 export function AppearancePanel() {

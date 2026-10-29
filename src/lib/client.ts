@@ -27,6 +27,17 @@ export function useApi() {
   }, [fn]);
 }
 
+/** Call the API as a specific saved session (used by the device manager). */
+export function useApiAs() {
+  const fn = useServerFn(rpc);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return useCallback(async <T = any>(token: string, op: string, args?: unknown): Promise<T> => {
+    const r = await fn({ data: { op, args, token } });
+    if (!r.ok) throw new Error(r.error);
+    return r.data as T;
+  }, [fn]);
+}
+
 export function downloadCsv(name: string, rows: Record<string, unknown>[]) {
   if (!rows.length) rows = [{ 提示: "无日志" }];
   const cols = Object.keys(rows[0]);
