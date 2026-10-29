@@ -71,7 +71,7 @@ function AppPage() {
   return (
     <Themed menu={menu} override={me.theme}>
       <DebtPrompt key={`debt-${active}`} />
-      <header className="sticky top-0 z-[500] border-b-2 border-ink bg-card">
+      <header className="sticky top-0 z-[500] border-b-2 border-ink" style={{ background: "var(--panel-bg)" }}>
         <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2">
           <Link to="/"><AppIcon size={36} /></Link>
           <div className="min-w-0 flex-1">
