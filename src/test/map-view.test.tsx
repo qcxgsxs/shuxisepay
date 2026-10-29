@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => {
   return { map, handlers };
 });
 vi.mock("leaflet", () => ({
+  default: undefined,
   map: () => fake.map,
   tileLayer: () => ({ addTo: vi.fn() }),
   layerGroup: () => ({ addTo() { return this; }, clearLayers: vi.fn() }),
