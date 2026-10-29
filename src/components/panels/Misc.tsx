@@ -79,7 +79,7 @@ export function MapPanel({ me }: { me: Me }) {
 export function EtcPanel() {
   const api = useApi();
   const pos = useGps();
-  const [on, setOn] = useState(false);
+  const [on] = useState(false); // background charging (BackgroundEtc) replaces the manual toggle
   const [events, setEvents] = useState<string[]>([]);
   const [ip, setIp] = useState("");
   const posRef = useRef(pos);
@@ -99,8 +99,7 @@ export function EtcPanel() {
   }, [on, api]);
   return (
     <Section title="ETC 自动扣费">
-      <p className="mb-2 text-sm">开启后，经过收费站、停车场或命中IP计费规则时会自动扣款。</p>
-      <button className={`btn ${on ? "btn-danger" : ""}`} onClick={() => setOn(!on)}>{on ? "关闭 ETC" : "开启 ETC"}</button>
+      <p className="mb-2 text-sm">打开APP后会自动后台定位：到达收费站、停车场、酒店或命中IP计费时，会给每个分身都扣一遍费，没钱会扣成负数。ETC 开关由 ETC 管理账号控制。</p>
       <p className="mt-2 text-xs text-muted-foreground">位置：{pos ? `${pos[0].toFixed(5)}, ${pos[1].toFixed(5)}` : "未获取"} · IP：{ip || "-"}</p>
       <ul className="mt-2 space-y-1 text-sm">{events.map((e, i) => <li key={i}>{e}</li>)}</ul>
     </Section>
@@ -159,7 +158,7 @@ export function LogsPanel({ me }: { me: Me }) {
 
 export const MENU_KEYS: Record<string, string> = {
   home: "首页棋盘", ...Object.fromEntries(ROLES.map((r) => [`login_${r}`, `${ROLE_LABEL[r]}登录页`])),
-  wallet: "钱包", accounts: "账号", perms: "权限", currency: "货币", pay: "支付方式", shop: "商店", seller: "我的商品", map: "地图", etc: "ETC", chat: "聊天", logs: "日志", look: "外观", tests: "测试", etcadm: "ETC管理", screen: "投屏", devices: "安全与设备", reset: "重设密码页",
+  wallet: "钱包", accounts: "账号", perms: "权限", currency: "货币", pay: "支付方式", shop: "商店", seller: "我的商品", map: "地图", etc: "ETC", chat: "聊天", logs: "日志", look: "外观", tests: "测试", etcadm: "ETC管理", cards: "优待卡", screen: "投屏", devices: "安全与设备", reset: "重设密码页",
 };
 
 export function AppearancePanel() {

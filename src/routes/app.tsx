@@ -10,7 +10,7 @@ import { WalletPanel } from "@/components/panels/Wallet";
 import { PayMethodsPanel, SellerPanel, ShopPanel } from "@/components/panels/Commerce";
 import { AppearancePanel, ChatPanel, EtcPanel, LogsPanel, MapPanel, MENU_KEYS } from "@/components/panels/Misc";
 import { TestsPanel } from "@/components/panels/Tests";
-import { DebtPrompt, DevicesPanel, EtcAdminPanel, ScreenPanel } from "@/components/panels/Extra";
+import { BackgroundEtc, CardPanel, DebtPrompt, DevicesPanel, EtcAdminPanel, ScreenPanel } from "@/components/panels/Extra";
 
 export type Me = { id: string; username: string; role: Role; realRole: Role; perms: Record<string, any>; canRegister: Role[]; theme: Theme | null; hasPayPin?: boolean; etcEnabled?: boolean; impersonated?: boolean };
 
@@ -40,6 +40,7 @@ function menusFor(me: Me): string[] {
   if (["top", "bank_admin", "engineer_admin", "seller_admin", "pay_admin"].includes(r)) m.push("logs");
   if (r === "top" || r === "etc_admin") m.push("etcadm");
   if (r === "top" || r === "screen_admin") m.push("screen");
+  if (r === "top" || r === "card_admin") m.push("cards");
   if (r === "top") m.push("perms", "look", "tests");
   m.push("devices");
   return m;
@@ -82,6 +83,7 @@ function AppPage() {
           <Link to="/" className="btn btn-ghost shrink-0" title="再登录一个账号">+分身</Link>
           <button className="btn btn-ghost shrink-0" onClick={logout}>退出</button>
         </div>
+        <BackgroundEtc />
         {me.impersonated && <p className="bg-destructive px-3 py-1 text-center text-xs text-destructive-foreground">投屏中：你正在以「{me.username}」的身份操作</p>}
         {me.role !== me.realRole && <p className="px-3 pb-1 text-center text-xs">当前拥有「{ROLE_LABEL[me.role]}」的权限（由顶级账号设置）</p>}
         {!side && (
@@ -111,6 +113,7 @@ function AppPage() {
           {menu === "look" && <AppearancePanel />}
           {menu === "tests" && <TestsPanel />}
           {menu === "etcadm" && <EtcAdminPanel me={me} />}
+          {menu === "cards" && <CardPanel />}
           {menu === "screen" && <ScreenPanel onOpened={(tok) => switchTo(tok)} />}
           {menu === "devices" && <DevicesPanel me={me} onChanged={(next) => { qc.clear(); setMenu(""); setActive(next); }} />}
         </main>
