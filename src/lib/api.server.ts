@@ -697,7 +697,7 @@ Object.assign(authed, {
     return runE2E(ctx);
   },
 });
-const ROLE_LABEL_SHORT: Record<Role, string> = { top: "顶级", etc_admin: "ETC管理", screen_admin: "投屏管理", bank_admin: "银行管理", bank: "银行", engineer_admin: "工程师管理", engineer: "工程师", seller_admin: "卖家管理", seller: "卖家", pay_admin: "支付管理", normal: "普通" };
+const ROLE_LABEL_SHORT: Record<Role, string> = { top: "顶级", etc_admin: "ETC管理", screen_admin: "投屏管理", card_admin: "优待卡", bank_admin: "银行管理", bank: "银行", engineer_admin: "工程师管理", engineer: "工程师", seller_admin: "卖家管理", seller: "卖家", pay_admin: "支付管理", normal: "普通" };
 
 async function runE2E(base: Ctx) {
   const results: { name: string; pass: boolean; detail?: string }[] = [];
