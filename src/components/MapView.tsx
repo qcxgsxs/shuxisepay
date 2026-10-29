@@ -20,6 +20,10 @@ export function MapView({
   const lib = useRef<typeof L | null>(null);
   const clickRef = useRef(onClick);
   clickRef.current = onClick;
+  const centerRef = useRef(center);
+  centerRef.current = center;
+  const centered = useRef(false);
+  const interacted = useRef(false);
 
   useEffect(() => {
     let dead = false;
@@ -27,14 +31,17 @@ export function MapView({
       if (dead || !el.current || map.current) return;
       const Lf = (mod as unknown as { default: typeof L }).default ?? (mod as unknown as typeof L);
       lib.current = Lf;
-      const m = Lf.map(el.current).setView(center ?? [24.4798, 118.0894], 13);
+      const m = Lf.map(el.current).setView(centerRef.current ?? [24.4798, 118.0894], 13);
+      centered.current = Boolean(centerRef.current);
+      // Location is an initial view, not a command to follow every GPS update.
+      m.on("dragstart zoomstart", () => { interacted.current = true; });
       Lf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(m);
       m.on("click", (e: L.LeafletMouseEvent) => clickRef.current?.(e.latlng.lat, e.latlng.lng));
       layer.current = Lf.layerGroup().addTo(m);
       map.current = m;
       draw();
     });
-    return () => { dead = true; map.current?.remove(); map.current = null; };
+    return () => { dead = true; map.current?.remove(); map.current = null; centered.current = false; interacted.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -51,7 +58,11 @@ export function MapView({
     if (circle) Lf.circle(circle.center, { radius: circle.radius, color: "#4a6ee2", fillOpacity: 0.2 }).addTo(g);
   }
   useEffect(draw);
-  useEffect(() => { if (center && map.current) map.current.setView(center); }, [center?.[0], center?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!center || !map.current || centered.current || interacted.current) return;
+    centered.current = true;
+    map.current.setView(center);
+  }, [center?.[0], center?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div ref={el} style={{ height }} className="w-full overflow-hidden rounded-lg border-2 border-ink" />;
 }
