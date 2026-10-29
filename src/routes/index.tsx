@@ -6,9 +6,9 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "七彩星光支付 · 选择登录窗口" },
-      { name: "description", content: "大富翁式虚拟支付游戏，九种账号九个登录窗口。" },
+      { name: "description", content: "大富翁式虚拟支付游戏，多种账号各自的登录窗口。" },
       { property: "og:title", content: "七彩星光支付" },
-      { property: "og:description", content: "大富翁式虚拟支付游戏，九种账号九个登录窗口。" },
+      { property: "og:description", content: "大富翁式虚拟支付游戏，多种账号各自的登录窗口。" },
     ],
   }),
   component: Index,
@@ -39,7 +39,7 @@ function Index() {
               params={{ role: r }}
               className="card-hard group flex flex-col overflow-hidden transition-transform hover:-translate-y-1"
             >
-              <div className={`${TILE[i]} h-6 border-b-2 border-ink sm:h-8`} />
+              <div className={`${TILE[i % TILE.length]} h-6 border-b-2 border-ink sm:h-8`} />
               <div className={`flex flex-1 ${list ? "flex-row items-center justify-between" : "flex-col"} p-3`}>
                 <span className="font-display text-xs text-muted-foreground">第 {i + 1} 格</span>
                 <span className="font-display text-base sm:text-xl">{t(`role_${r}`, ROLE_LABEL[r])}</span>

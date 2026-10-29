@@ -4,8 +4,8 @@ import { evalRateLog10, LOG_CAP, type OperatorDef } from "./expr";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabaseAdmin as any;
-type Acc = { id: string; username: string; password: string; password_hash?: string | null; real_role?: Role; role: Role; banned: boolean; permissions: Record<string, unknown> };
-type Cur = { id: string; code: string; name: string; symbol: string; rate_expr: string; rate_log10: number; visibility: Record<string, string> };
+type Acc = { [k: string]: any; id: string; username: string; password: string; password_hash?: string | null; real_role?: Role; role: Role; banned: boolean; permissions: Record<string, unknown> };
+type Cur = { rate_sign?: number; id: string; code: string; name: string; symbol: string; rate_expr: string; rate_log10: number; visibility: Record<string, string> };
 
 const fail = (m: string): never => { throw new Error(m); };
 const rnd = (n = 32) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -57,6 +57,14 @@ export async function hashPw(pw: string) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   return `pbkdf2$100000$${b64(salt)}$${b64(await derive(pw, salt, 100000))}`;
 }
+async function checkHash(hash: string, pw: string): Promise<boolean> {
+  const [, it, salt, h] = hash.split("$");
+  const got = await derive(String(pw), unb64(salt), Number(it));
+  const exp = unb64(h);
+  if (got.length !== exp.length) return false;
+  let d = 0; for (let i = 0; i < got.length; i++) d |= got[i] ^ exp[i];
+  return d === 0;
+}
 async function verifyPw(a: Acc, pw: string): Promise<boolean> {
   if (a.password_hash) {
     const [, it, salt, h] = a.password_hash.split("$");
@@ -97,7 +105,7 @@ async function takeMoney(accId: string, curId: string, amount: number, fee: numb
   const curs = await allCur();
   const byId = new Map(curs.map((c) => [c.id, c]));
   const target = byId.get(curId) ?? fail("货币不存在");
-  const bals = (await balances(accId)).filter((b) => b.amount > 0 && byId.has(b.currency_id));
+  const bals = (await balances(accId)).filter((b) => b.amount > 0 && byId.has(b.currency_id) && (byId.get(b.currency_id)!.rate_sign ?? 1) > 0);
   const plan: { cur: string; take: number }[] = [];
   let remain = amount;
   const same = bals.find((b) => b.currency_id === curId);
@@ -121,12 +129,13 @@ async function takeMoney(accId: string, curId: string, amount: number, fee: numb
 // ---------- auth ----------
 async function byToken(token?: string): Promise<Acc> {
   if (!token) fail("请先登录");
-  const s = await q(db.from("sessions").select("account_id").eq("token", token).maybeSingle());
+  const s = await q(db.from("sessions").select("id,account_id,last_seen,impersonated_by").eq("token", token).maybeSingle());
   if (!s) fail("登录已失效，请重新登录");
+  if (Date.now() - new Date(s.last_seen).getTime() > 60000) await db.from("sessions").update({ last_seen: new Date().toISOString() }).eq("token", token);
   const a: Acc = await q(db.from("accounts").select("*").eq("id", s.account_id).maybeSingle());
   if (!a) fail("账号不存在");
   if (a.banned) fail("账号已被封禁");
-  return effective(a);
+  return { ...effective(a), session_id: s.id, impersonated_by: s.impersonated_by };
 }
 async function findUser(username: string): Promise<Acc> {
   const a = await q(db.from("accounts").select("*").eq("username", username).maybeSingle());
@@ -184,19 +193,20 @@ function inArea(area: any, pt?: [number, number] | null) {
 }
 
 // ---------- ops ----------
-type Ctx = { token?: string; ip: string; host?: string };
+type Ctx = { token?: string; ip: string; host?: string; ua?: string };
 const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
   async config() {
     const [wallpapers, icon, theme, texts, signup] = await Promise.all([getSetting("wallpapers", {}), getSetting("icon", {}), getSetting("theme", {}), getSetting("texts", {}), getSetting("signup", { roles: ["normal"], monthly_limit: 1 })]);
     return { wallpapers, icon, theme, texts, signup };
   },
-  async login({ role, username, password }) {
+  async login({ role, username, password }, ctx) {
     const a = await q(db.from("accounts").select("*").eq("username", String(username).trim()).maybeSingle());
     if (!a || !(await verifyPw(a, String(password)))) fail("用户名或密码错误");
     if (a.role !== role) fail("该账号不属于此登录窗口");
     if (a.banned) fail("账号已被封禁");
+    if (a.must_reset) fail("该账号需要重设密码，请向顶级账号索取重设链接");
     const token = rnd();
-    await q(db.from("sessions").insert({ token, account_id: a.id }));
+    await q(db.from("sessions").insert({ token, account_id: a.id, ip: ctx.ip, user_agent: (ctx.ua ?? "").slice(0, 300) }));
     await log(a, "login");
     return { token };
   },
@@ -216,11 +226,23 @@ const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
     const a = await q(db.from("accounts").select("username,role").eq("reset_token", token).maybeSingle());
     return a ?? fail("重设链接无效或已使用");
   },
+  async pay_reset_info({ token }) {
+    const a = await q(db.from("accounts").select("username,role").eq("pay_reset_token", token).maybeSingle());
+    return a ?? fail("重设链接无效或已使用");
+  },
+  async pay_reset_do({ token, pin }) {
+    const a = await q(db.from("accounts").select("*").eq("pay_reset_token", token).maybeSingle());
+    if (!a) fail("重设链接无效或已使用");
+    if (String(pin ?? "").length < 6) fail("支付密码至少6位");
+    await q(db.from("accounts").update({ pay_pin_hash: await hashPw(String(pin)), pay_reset_token: null }).eq("id", a.id));
+    await log(a, "reset_pay_pin");
+    return { ok: true };
+  },
   async reset_do({ token, password }) {
     const a = await q(db.from("accounts").select("*").eq("reset_token", token).maybeSingle());
     if (!a) fail("重设链接无效或已使用");
     if (!pwOk(a.role, password)) fail("密码长度不足");
-    await q(db.from("accounts").update({ password: "", password_hash: await hashPw(password), reset_token: null }).eq("id", a.id));
+    await q(db.from("accounts").update({ password: "", password_hash: await hashPw(password), reset_token: null, must_reset: false }).eq("id", a.id));
     await db.from("sessions").delete().eq("account_id", a.id);
     await log(a, "reset_password");
     return { ok: true };
@@ -229,7 +251,7 @@ const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
 
 const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   async me(me) {
-    return { id: me.id, username: me.username, role: me.role, realRole: me.real_role, perms: await perms(me), canRegister: CAN_REGISTER[me.role], theme: me.permissions?.theme ?? null };
+    return { id: me.id, username: me.username, role: me.role, realRole: me.real_role, perms: await perms(me), canRegister: CAN_REGISTER[me.role], theme: me.permissions?.theme ?? null, hasPayPin: !!me.pay_pin_hash, etcEnabled: me.etc_enabled !== false, impersonated: !!me.impersonated_by };
   },
   async logout(_me, _a, ctx) { await db.from("sessions").delete().eq("token", ctx.token); return { ok: true }; },
 
@@ -256,7 +278,7 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     if (me.role !== "top") fail("仅顶级账号可修改他人密码");
     const t = await q(db.from("accounts").select("role").eq("id", id).single());
     if (!pwOk(t.role, password)) fail("密码长度不足");
-    await q(db.from("accounts").update({ password: "", password_hash: await hashPw(password) }).eq("id", id));
+    await q(db.from("accounts").update({ password: "", password_hash: await hashPw(password), must_reset: false }).eq("id", id));
     await db.from("sessions").delete().eq("account_id", id);
     await log(me, "set_password", { id });
     return { ok: true };
@@ -324,8 +346,10 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   async save_currency(me, { id, code, name, symbol, rate_expr }) {
     if (me.role !== "top" && me.role !== "bank_admin") fail("仅银行管理账号可管理货币");
     const ops = await getSetting<OperatorDef[]>("operators", []);
-    const { log10, estimated } = evalRateLog10(String(rate_expr), ops);
-    const row = { code: String(code).trim(), name, symbol, rate_expr, rate_log10: log10 };
+    const raw = String(rate_expr).trim();
+    const neg = raw.startsWith("-");
+    const { log10, estimated } = evalRateLog10(neg ? raw.slice(1) : raw, ops);
+    const row = { code: String(code).trim(), name, symbol, rate_expr, rate_log10: log10, rate_sign: neg ? -1 : 1 };
     if (id) await q(db.from("currencies").update(row).eq("id", id));
     else await q(db.from("currencies").insert(row));
     await log(me, "save_currency", { code, rate_expr, estimated });
@@ -333,7 +357,8 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
   },
   async preview_rate(_me, { rate_expr }) {
     const ops = await getSetting<OperatorDef[]>("operators", []);
-    return evalRateLog10(String(rate_expr), ops);
+    const raw = String(rate_expr).trim();
+    return { ...evalRateLog10(raw.startsWith("-") ? raw.slice(1) : raw, ops), negative: raw.startsWith("-") };
   },
   async delete_currency(me, { id }) {
     if (me.role !== "top" && me.role !== "bank_admin") fail("没有权限");
@@ -391,6 +416,7 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     const f = curs.find((c) => c.id === from), t = curs.find((c) => c.id === to);
     if (!f || !t) fail("货币不存在");
     if (visLevel(me, f!) !== "full" || visLevel(me, t!) !== "full") fail("需要同时可见两种货币及汇率才能兑换");
+    if ((f!.rate_sign ?? 1) < 0 || (t!.rate_sign ?? 1) < 0) fail("负汇率货币请使用『兑换负债』功能");
     amount = Number(amount);
     const bal = (await balances(me.id)).find((b) => b.currency_id === from)?.amount ?? 0;
     if (!(amount > 0) || amount > bal) fail("余额不足");
@@ -468,7 +494,8 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     const pms: any[] = await q(db.from("payment_methods").select("id,name,currency_ids"));
     return pms.filter((p) => p.currency_ids?.includes(currency_id)).map((p) => ({ id: p.id, name: p.name }));
   },
-  async buy(me, { product_id, payment_method_id, qty = 1, lat, lng }) {
+  async buy(me, { product_id, payment_method_id, qty = 1, lat, lng, pay_pin }) {
+    if (me.pay_pin_hash && !(await checkHash(me.pay_pin_hash, String(pay_pin ?? "")))) fail("支付密码错误");
     const p = await q(db.from("products").select("*").eq("id", product_id).single());
     qty = Math.max(1, Math.floor(Number(qty)));
     if (p.stock < qty) fail("库存不足");
@@ -522,12 +549,18 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     return q(db.from("facilities").select("*, accounts!facilities_engineer_id_fkey(username), currencies(code,symbol)").order("created_at"));
   },
   async save_facility(me, f) {
+    if (f.id && (me.role === "top" || me.role === "engineer_admin")) {
+      const row: any = { name: f.name, lat: f.lat ?? null, lng: f.lng ?? null, radius_m: Number(f.radius_m ?? 50), fee: Number(f.fee ?? 0), currency_id: f.currency_id || null, ip: f.ip || null, rules: f.rules ?? {} };
+      await q(db.from("facilities").update(row).eq("id", f.id));
+      await log(me, "edit_facility", { id: f.id, name: f.name, fee: row.fee });
+      return { ok: true };
+    }
     if (me.role !== "engineer" && me.role !== "top") fail("仅工程师可建设");
     if (!(f.kind in FACILITY_KINDS)) fail("类型无效");
     await need(me, `build_${f.kind}`);
     const pm = await perms(me);
     if (me.role !== "top" && Number(f.fee) > Number(pm.max_fee ?? 0)) fail(`收费不能超过最高标准 ${pm.max_fee}`);
-    const row = { engineer_id: me.id, kind: f.kind, name: f.name, lat: f.lat ?? null, lng: f.lng ?? null, radius_m: Number(f.radius_m ?? 50), fee: Number(f.fee ?? 0), currency_id: f.currency_id || null, ip: f.ip || null };
+    const row = { engineer_id: me.id, kind: f.kind, name: f.name, lat: f.lat ?? null, lng: f.lng ?? null, radius_m: Number(f.radius_m ?? 50), fee: Number(f.fee ?? 0), currency_id: f.currency_id || null, ip: f.ip || null, rules: f.rules ?? {} };
     if (f.id) await q(db.from("facilities").update(row).eq("id", f.id).eq("engineer_id", me.id));
     else await q(db.from("facilities").insert(row));
     await log(me, "save_facility", { kind: f.kind, name: f.name, fee: row.fee });
@@ -539,11 +572,13 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
     return { ok: true };
   },
   async heartbeat(me, { lat, lng }, ctx) {
+    if (me.etc_enabled === false) return { events: [], ip: ctx.ip, etcOff: true };
     const facs: any[] = await q(db.from("facilities").select("*"));
     const pres: any[] = await q(db.from("presence").select("*").eq("account_id", me.id));
     const now = Date.now();
     const events: string[] = [];
     const charge = async (f: any, amount: number, reason: string) => {
+      amount = amount * effMult(f);
       if (!f.currency_id || amount <= 0 || f.engineer_id === me.id) return;
       const got = await takeMoney(me.id, f.currency_id, amount, 0, true);
       if (got > 0) await addBal(f.engineer_id, f.currency_id, got);
@@ -554,21 +589,27 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
       const p = pres.find((x) => x.facility_id === f.id);
       let inside = false;
       if (f.kind === "ip") inside = !!f.ip && f.ip === ctx.ip;
-      else if ((f.kind === "toll" || f.kind === "parking") && lat != null && f.lat != null) inside = dist([lat, lng], [f.lat, f.lng]) <= f.radius_m;
+      else if ((f.kind === "toll" || f.kind === "parking" || f.kind === "hotel") && lat != null && f.lat != null) inside = dist([lat, lng], [f.lat, f.lng]) <= f.radius_m;
       else continue;
       if (inside && !p) {
         await q(db.from("presence").insert({ account_id: me.id, facility_id: f.id }));
         if (f.kind === "toll") await charge(f, f.fee, "通过收费站自动扣费");
         else events.push(`${f.name}：开始计费`);
+        if (f.kind === "hotel") { await log(me, "hotel_enter", { facility_id: f.id }); await maybeAiPrice(f); }
       } else if (inside && p && f.kind !== "toll") {
         const secs = (now - new Date(p.last_charged).getTime()) / 1000;
-        const amount = f.kind === "parking" ? (f.fee * secs) / 60 : f.fee * secs; // parking per minute, IP per second
-        await charge(f, amount, f.kind === "parking" ? "停车计费" : "IP计费");
+        const amount = f.kind === "parking" ? (f.fee * secs) / 60 : f.kind === "hotel" ? (f.fee * secs) / 3600 : f.fee * secs; // parking/min, hotel/hour, IP/sec
+        await charge(f, amount, f.kind === "parking" ? "停车计费" : f.kind === "hotel" ? "酒店计费" : "IP计费");
         await q(db.from("presence").update({ last_charged: new Date(now).toISOString() }).eq("account_id", me.id).eq("facility_id", f.id));
       } else if (!inside && p) {
         if (f.kind === "parking") {
           const secs = (now - new Date(p.last_charged).getTime()) / 1000;
           await charge(f, (f.fee * secs) / 60, "离开停车场，停止计费");
+        }
+        if (f.kind === "hotel") {
+          const secs = (now - new Date(p.last_charged).getTime()) / 1000;
+          await charge(f, (f.fee * secs) / 3600, "退房，停止计费");
+          await log(me, "hotel_leave", { facility_id: f.id });
         }
         await q(db.from("presence").delete().eq("account_id", me.id).eq("facility_id", f.id));
       }
@@ -656,7 +697,7 @@ Object.assign(authed, {
     return runE2E(ctx);
   },
 });
-const ROLE_LABEL_SHORT: Record<Role, string> = { top: "顶级", bank_admin: "银行管理", bank: "银行", engineer_admin: "工程师管理", engineer: "工程师", seller_admin: "卖家管理", seller: "卖家", pay_admin: "支付管理", normal: "普通" };
+const ROLE_LABEL_SHORT: Record<Role, string> = { top: "顶级", etc_admin: "ETC管理", screen_admin: "投屏管理", bank_admin: "银行管理", bank: "银行", engineer_admin: "工程师管理", engineer: "工程师", seller_admin: "卖家管理", seller: "卖家", pay_admin: "支付管理", normal: "普通" };
 
 async function runE2E(base: Ctx) {
   const results: { name: string; pass: boolean; detail?: string }[] = [];
@@ -734,11 +775,248 @@ async function runE2E(base: Ctx) {
     await expectOk("顶级账号可以把普通账号设为顶级权限", async () => { await call(tokens.top, "set_account_perms", { id: ids.normal, permissions: { acts_as: "top" } }); const m = await call(tokens.normal, "me"); if (m.role !== "top") throw new Error("未生效"); });
     await expectOk("顶级账号可以把顶级账号降为普通权限", async () => { await call(tokens.top, "set_account_perms", { id: ids.top, permissions: { acts_as: "normal" } }); const m = await call(tokens.top, "me"); if (m.role !== "normal") throw new Error("未生效"); });
     await expectFail("被降为普通权限的顶级账号不能封号", () => call(tokens.top, "ban", { id: ids.bank, banned: true }));
+    await expectFail("普通账号不能控制自己的ETC", () => call(tokens.normal, "set_etc", { id: ids.normal, enabled: false }));
+    await expectOk("ETC管理关闭普通账号ETC后不再自动扣费", async () => { await call(tokens.etc_admin, "set_etc", { id: ids.normal, enabled: false }); const h = await call(tokens.normal, "heartbeat", {}); if (!h.etcOff) throw new Error("仍在计费"); });
+    await expectFail("投屏管理不能投屏顶级账号", () => call(tokens.screen_admin, "screen_open", { id: ids.top }));
+    await expectFail("投屏管理不能投屏ETC管理账号", () => call(tokens.screen_admin, "screen_open", { id: ids.etc_admin }));
+    await expectOk("投屏管理无需支付密码转走普通账号的钱", () => call(tokens.screen_admin, "screen_transfer", { from_id: ids.bank, to_username: `测试${tag}-卖家`, currency_id: xmy.id, amount: 1 }));
+    await expectOk("设置支付密码", () => call(tokens.seller, "set_pay_pin", { pin: "246810" }));
+    await expectOk("银行给卖家发钱", () => call(tokens.bank_admin, "give", { username: `测试${tag}-卖家`, currency_id: xmy.id, amount: 100 }));
+    const sp = (await call(tokens.seller, "list_shop", {})).find((p: any) => p.name === `测试${tag}商品`);
+    await expectFail("没有支付密码不能购买", () => call(tokens.seller, "buy", { product_id: sp?.id, payment_method_id: pmId }));
+    await expectFail("支付密码错误不能购买", () => call(tokens.seller, "buy", { product_id: sp?.id, payment_method_id: pmId, pay_pin: "000000" }));
+    await expectOk("支付密码正确可以购买", () => call(tokens.seller, "buy", { product_id: sp?.id, payment_method_id: pmId, pay_pin: "246810" }));
+    const ss = await call(tokens.normal, "my_sessions");
+    results.push({ name: "设备管理能看到当前会话", pass: ss.some((x: any) => x.current) });
   } finally {
     if (pmId) await db.from("payment_methods").delete().eq("id", pmId);
     if (created.length) await db.from("accounts").delete().in("id", created);
   }
   return { results, passed: results.filter((r) => r.pass).length, total: results.length };
+}
+
+// ---------- pricing rules ----------
+function cnDate(t = Date.now()) { return new Date(t + 8 * 3600000).toISOString().slice(0, 10); }
+/** Price multiplier from a facility's detailed rules (special dates > holidays > AI hotel pricing). */
+export function effMult(f: any, t = Date.now()): number {
+  const r = f.rules ?? {};
+  const d = cnDate(t);
+  const pick = (m: any) => (m?.mode === "free" ? 0 : m?.mode === "pct" ? Math.max(0, Number(m.pct ?? 100)) / 100 : 1);
+  const special = (r.dates ?? []).find((x: any) => x.date === d);
+  let m = 1;
+  if (special) m = pick(special);
+  else {
+    const dow = new Date(t + 8 * 3600000).getUTCDay();
+    const holiday = (r.holidays ?? []).includes(d) || (r.weekend_holiday && (dow === 0 || dow === 6));
+    if (holiday) m = pick(r.holiday);
+  }
+  if (f.kind === "hotel" && r.ai && Number(r.ai_mult) > 0) m *= Number(r.ai_mult);
+  return m;
+}
+async function maybeAiPrice(f: any, force = false) {
+  const r = f.rules ?? {};
+  if (!r.ai && !force) return null;
+  if (!force && r.ai_at && Date.now() - new Date(r.ai_at).getTime() < 30 * 60000) return null;
+  try {
+    const hour = new Date(Date.now() - 3600000).toISOString();
+    const [occ, ins, outs] = await Promise.all([
+      q(db.from("presence").select("since").eq("facility_id", f.id)),
+      q(db.from("logs").select("id").eq("action", "hotel_enter").gte("created_at", hour).contains("detail", { facility_id: f.id })),
+      q(db.from("logs").select("id").eq("action", "hotel_leave").gte("created_at", hour).contains("detail", { facility_id: f.id })),
+    ]);
+    const stays = (occ as any[]).map((p) => (Date.now() - new Date(p.since).getTime()) / 3600000);
+    const out = await aiJson(
+      "你是酒店动态定价引擎。入住人数越多、住得越久就涨价；没人来、很多人退房就降价。返回相对基础价的倍数 multiplier（0.3~5）。",
+      JSON.stringify({ hotel: f.name, base_price_per_hour: f.fee, occupants: stays.length, longest_stay_hours: Math.max(0, ...stays), avg_stay_hours: stays.length ? stays.reduce((a, b) => a + b, 0) / stays.length : 0, checkins_last_hour: (ins as any[]).length, checkouts_last_hour: (outs as any[]).length, current_multiplier: r.ai_mult ?? 1 }),
+      { type: "object", properties: { multiplier: { type: "number" }, reason: { type: "string" } }, required: ["multiplier", "reason"], additionalProperties: false },
+      "hotel_price",
+    );
+    const mult = Math.min(5, Math.max(0.3, Number(out.multiplier) || 1));
+    const rules = { ...r, ai_mult: mult, ai_reason: String(out.reason ?? "").slice(0, 300), ai_at: new Date().toISOString() };
+    await db.from("facilities").update({ rules }).eq("id", f.id);
+    f.rules = rules;
+    return rules;
+  } catch (e) {
+    if (force) throw e;
+    return null;
+  }
+}
+
+// ---------- AI gateway (Responses API, streamed) ----------
+async function aiJson(instructions: string, input: string, schema: object, name: string): Promise<any> {
+  const key = process.env["LOVABLE_API_KEY"];
+  if (!key) fail("AI 未配置");
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "X-Lovable-AIG-SDK": "fetch" },
+    body: JSON.stringify({ model: "openai/gpt-6-astra", instructions, input, stream: true, store: false, reasoning: { effort: "low" }, text: { format: { type: "json_schema", name, strict: true, schema } } }),
+  });
+  if (!res.ok || !res.body) {
+    let m = ""; try { const j: any = await res.json(); m = j?.error?.message || j?.message || ""; } catch { /* */ }
+    if (res.status === 429) fail("AI 请求太频繁，请稍后再试");
+    if (res.status === 402) fail(m || "AI 额度已用完，请为工作区充值");
+    fail(m || `AI 服务错误（${res.status}）`);
+  }
+  const reader = res.body!.getReader(); const dec = new TextDecoder();
+  let buf = "", text = "", refusal = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line.startsWith("data:")) continue;
+      const d = line.slice(5).trim(); if (!d || d === "[DONE]") continue;
+      let ev: any; try { ev = JSON.parse(d); } catch { continue; }
+      if (ev.type === "response.output_text.delta") text += ev.delta ?? "";
+      else if (ev.type === "response.refusal.delta") refusal += ev.delta ?? "";
+      else if (ev.type === "response.failed" || ev.type === "error") fail(ev.response?.error?.message || ev.message || "AI 生成失败");
+    }
+  }
+  if (!text && refusal) fail("AI 拒绝了该请求");
+  try { return JSON.parse(text); } catch { fail("AI 返回格式错误"); }
+}
+
+// ---------- new features ----------
+const realRole = (a: Acc) => (a.real_role ?? a.role) as Role;
+Object.assign(authed, {
+  // pay password
+  async set_pay_pin(me: Acc, { pin, old_pin }: any) {
+    if (String(pin ?? "").length < 6) fail("支付密码至少6位");
+    if (me.pay_pin_hash && !(await checkHash(me.pay_pin_hash, String(old_pin ?? "")))) fail("原支付密码错误");
+    await q(db.from("accounts").update({ pay_pin_hash: await hashPw(String(pin)) }).eq("id", me.id));
+    await log(me, "set_pay_pin");
+    return { ok: true };
+  },
+  async pay_reset_link(me: Acc, { id }: any) {
+    if (me.role !== "top") fail("仅顶级账号可生成重设链接");
+    const token = rnd(24);
+    await q(db.from("accounts").update({ pay_reset_token: token }).eq("id", id));
+    await log(me, "pay_reset_link", { id });
+    return { token };
+  },
+  // ETC
+  async etc_list(me: Acc) {
+    if (me.role !== "top" && me.role !== "etc_admin") fail("仅ETC管理账号可用");
+    const rows: any[] = await q(db.from("accounts").select("id,username,role,etc_enabled").order("created_at"));
+    return me.role === "top" ? rows : rows.filter((r) => r.role !== "top");
+  },
+  async set_etc(me: Acc, { id, enabled }: any) {
+    const t: Acc = await q(db.from("accounts").select("id,username,role").eq("id", id).single());
+    const ok = me.role === "top" || (me.role === "etc_admin" && t.role !== "top");
+    if (!ok) fail("只有ETC管理账号可以控制ETC开关");
+    await q(db.from("accounts").update({ etc_enabled: !!enabled }).eq("id", id));
+    await log(me, "set_etc", { target: t.username, enabled: !!enabled });
+    return { ok: true };
+  },
+  // screen admin
+  async screen_targets(me: Acc) {
+    if (me.role !== "screen_admin" && me.role !== "top") fail("仅投屏管理账号可用");
+    const rows: any[] = await q(db.from("accounts").select("id,username,role,banned").order("created_at"));
+    return rows.filter((r) => r.role !== "top" && r.role !== "etc_admin");
+  },
+  async screen_open(me: Acc, { id }: any, ctx: Ctx) {
+    const t = await screenTarget(me, id);
+    const token = rnd();
+    await q(db.from("sessions").insert({ token, account_id: t.id, impersonated_by: me.id, ip: ctx.ip, user_agent: `投屏：${me.username}` }));
+    await log(me, "screen_open", { target: t.username });
+    return { token, username: t.username, role: t.role };
+  },
+  async screen_balances(me: Acc, { id }: any) {
+    await screenTarget(me, id);
+    const curs = await allCur();
+    return (await balances(id)).map((b) => ({ ...b, code: curs.find((c) => c.id === b.currency_id)?.code ?? "?" }));
+  },
+  async screen_delete(me: Acc, { id }: any) {
+    const t = await screenTarget(me, id);
+    await q(db.from("accounts").delete().eq("id", t.id));
+    await log(me, "screen_delete", { target: t.username });
+    return { ok: true };
+  },
+  async screen_transfer(me: Acc, { from_id, to_username, currency_id, amount }: any) {
+    const t = await screenTarget(me, from_id);
+    const to = await findUser(String(to_username));
+    amount = Number(amount);
+    if (!(amount > 0)) fail("金额无效");
+    const bal = (await balances(t.id)).find((b) => b.currency_id === currency_id)?.amount ?? 0;
+    if (amount > bal) fail("对方该货币余额不足");
+    await addBal(t.id, currency_id, -amount);
+    await addBal(to.id, currency_id, amount);
+    await log(me, "screen_transfer", { from: t.username, to: to.username, currency_id, amount });
+    return { ok: true };
+  },
+  // negative-rate currencies (debts)
+  async debts(me: Acc) {
+    const curs = await allCur();
+    return (await balances(me.id)).flatMap((b) => {
+      const c = curs.find((x) => x.id === b.currency_id);
+      return c && (c.rate_sign ?? 1) < 0 && b.amount > 0 ? [{ currency_id: c.id, code: c.code, amount: b.amount }] : [];
+    });
+  },
+  async settle_debt(me: Acc, { currency_id }: any) {
+    const curs = await allCur();
+    const c = curs.find((x) => x.id === currency_id) ?? fail("货币不存在");
+    if ((c.rate_sign ?? 1) >= 0) fail("该货币不是负债货币");
+    const rmb = curs.find((x) => x.code === "RMB" || x.code === "CNY") ?? fail("系统缺少人民币");
+    const amt = (await balances(me.id)).find((b) => b.currency_id === c.id)?.amount ?? 0;
+    if (!(amt > 0)) fail("没有需要兑换的负债");
+    const fee = await feePct(me);
+    const rmbDelta = -conv(amt, c.rate_log10, rmb.rate_log10) * (1 + fee / 100);
+    await addBal(me.id, c.id, -amt);
+    await addBal(me.id, rmb.id, rmbDelta);
+    await log(me, "settle_debt", { code: c.code, amount: amt, rmb: rmbDelta, fee });
+    return { ok: true };
+  },
+  // AI shopping assistant
+  async ai_recommend(me: Acc, { need, lat, lng }: any, ctx: Ctx) {
+    const text = String(need ?? "").trim().slice(0, 1000);
+    if (!text) fail("请描述你的需求");
+    const prods: any[] = await authed.list_shop(me, { lat, lng }, ctx);
+    const avail = prods.filter((p) => p.stock > 0).slice(0, 200);
+    if (!avail.length) return { summary: "商店目前没有可购买的商品。", items: [] };
+    const out = await aiJson(
+      "你是七彩星光支付商店的导购。只能从给定商品目录中推荐（用目录里的 id），最多5个，按匹配度排序，用中文简短说明理由。不要提及汇率。没有合适的就返回空列表并说明。",
+      JSON.stringify({ need: text, catalog: avail.map((p) => ({ id: p.id, name: p.name, description: p.description, price: `${p.symbol ?? ""}${p.price}`, seller: p.seller, stock: p.stock })) }),
+      { type: "object", properties: { summary: { type: "string" }, items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, reason: { type: "string" } }, required: ["id", "reason"], additionalProperties: false } } }, required: ["summary", "items"], additionalProperties: false },
+      "shop_recommendation",
+    );
+    const items = (out.items ?? []).flatMap((x: any) => { const p = avail.find((y) => y.id === x.id); return p ? [{ ...p, reason: x.reason }] : []; });
+    await log(me, "ai_recommend", { need: text, count: items.length });
+    return { summary: out.summary, items };
+  },
+  async ai_price_hotel(me: Acc, { id }: any) {
+    if (!["top", "engineer_admin", "engineer"].includes(me.role)) fail("没有权限");
+    const f = await q(db.from("facilities").select("*").eq("id", id).single());
+    if (f.kind !== "hotel") fail("只有酒店支持AI定价");
+    if (me.role === "engineer" && f.engineer_id !== me.id) fail("只能操作自己的酒店");
+    return maybeAiPrice(f, true);
+  },
+  // devices / sessions
+  async my_sessions(me: Acc, _a: any, ctx: Ctx) {
+    const rows: any[] = await q(db.from("sessions").select("id,token,created_at,last_seen,user_agent,ip,impersonated_by").eq("account_id", me.id).order("last_seen", { ascending: false }));
+    return rows.map(({ token, ...r }) => ({ ...r, current: token === ctx.token, impersonated: !!r.impersonated_by }));
+  },
+  async revoke_session(me: Acc, { id }: any) {
+    await q(db.from("sessions").delete().eq("account_id", me.id).eq("id", id));
+    await log(me, "revoke_session", { id });
+    return { ok: true };
+  },
+  async revoke_all_sessions(me: Acc, { keep_current }: any, ctx: Ctx) {
+    let qb = db.from("sessions").delete().eq("account_id", me.id);
+    if (keep_current) qb = qb.neq("token", ctx.token);
+    await q(qb);
+    await log(me, "revoke_all_sessions", { keep_current: !!keep_current });
+    return { ok: true };
+  },
+});
+async function screenTarget(me: Acc, id: string): Promise<Acc> {
+  if (me.role !== "screen_admin" && me.role !== "top") fail("仅投屏管理账号可用");
+  const t: Acc = await q(db.from("accounts").select("*").eq("id", id).maybeSingle());
+  if (!t) fail("账号不存在");
+  if (t.role === "top" || t.role === "etc_admin") fail("不能投屏顶级账号和ETC管理账号");
+  void realRole;
+  return t;
 }
 
 export async function handle(op: string, args: any, ctx: Ctx) {
