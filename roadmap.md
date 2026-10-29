@@ -1,0 +1,7 @@
+- [ ] Finish satellite map validation.
+- [ ] Add account receipt and ETC charge notification history.
+- [ ] Add account receipt QR codes and authenticated scan-to-pay flow.
+- [ ] Verify payment, notifications, and map switching.
+- [ ] Add seller sale notifications and orders: pending shipment, transit, ready for pickup, received.
+- [ ] Share seller phone location only when updating transit progress.
+- [ ] Allow buyer reviews after receipt; only top accounts may delete reviews.

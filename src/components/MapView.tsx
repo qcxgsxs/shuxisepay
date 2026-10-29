@@ -3,7 +3,7 @@ import type * as L from "leaflet";
 
 export type MapMarker = { lat: number; lng: number; radius?: number; label: string; color?: string };
 
-/** OpenStreetMap via Leaflet — no API key. Loaded only in the browser. */
+/** Street and satellite layers via Leaflet. Loaded only in the browser. */
 export function MapView({
   markers = [], polygon, circle, onClick, height = 360, center,
 }: {
@@ -35,7 +35,12 @@ export function MapView({
       centered.current = Boolean(centerRef.current);
       // Location is an initial view, not a command to follow every GPS update.
       m.on("dragstart zoomstart", () => { interacted.current = true; });
-      Lf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(m);
+      const streets = Lf.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap contributors", maxZoom: 19 }).addTo(m);
+      const satellite = Lf.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        attribution: "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community",
+        maxZoom: 19,
+      });
+      Lf.control.layers({ "街道地图": streets, "卫星地图": satellite }, undefined, { collapsed: false }).addTo(m);
       m.on("click", (e: L.LeafletMouseEvent) => clickRef.current?.(e.latlng.lat, e.latlng.lng));
       layer.current = Lf.layerGroup().addTo(m);
       map.current = m;

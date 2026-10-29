@@ -7,6 +7,7 @@ import { AppIcon, Themed, useConfig, useText, type Theme } from "@/components/Sh
 import { AccountsPanel, RolePermsPanel } from "@/components/panels/Accounts";
 import { CurrencyPanel } from "@/components/panels/Currency";
 import { WalletPanel } from "@/components/panels/Wallet";
+import { ReceiptsPanel } from "@/components/panels/Receipts";
 import { PayMethodsPanel, SellerPanel, ShopPanel } from "@/components/panels/Commerce";
 import { AppearancePanel, ChatPanel, EtcPanel, LogsPanel, MapPanel, MENU_KEYS } from "@/components/panels/Misc";
 import { TestsPanel } from "@/components/panels/Tests";
@@ -42,7 +43,7 @@ function menusFor(me: Me): string[] {
   if (r === "top" || r === "screen_admin") m.push("screen");
   if (r === "top" || r === "card_admin") m.push("cards");
   if (r === "top") m.push("perms", "look", "tests");
-  m.push("devices");
+  m.push("receipts", "devices");
   return m;
 }
 
@@ -100,6 +101,7 @@ function AppPage() {
         )}
         <main key={active}>
           {menu === "wallet" && <WalletPanel me={me} />}
+          {menu === "receipts" && <ReceiptsPanel me={me} />}
           {menu === "shop" && <ShopPanel />}
           {menu === "seller" && <SellerPanel />}
           {menu === "map" && <MapPanel me={me} />}

@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { CAN_REGISTER, DEFAULT_PERMS, MANAGES, ROLES, USERNAME_RE, FACILITY_KINDS, type Role } from "./roles";
 import { evalRateLog10, LOG_CAP, type OperatorDef } from "./expr";
+import { receiptAmount } from "./receipt";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabaseAdmin as any;
@@ -23,7 +24,7 @@ async function setSetting(key: string, value: unknown) {
   await q(db.from("settings").upsert({ key, value }));
 }
 async function log(a: Partial<Acc> | null, action: string, detail: Record<string, unknown> = {}) {
-  await db.from("logs").insert({ account_id: a?.id ?? null, username: a?.username ?? null, role: a?.role ?? null, action, detail });
+  await q(db.from("logs").insert({ account_id: a?.id ?? null, username: a?.username ?? null, role: a?.role ?? null, action, detail }));
 }
 async function perms(a: Acc) {
   const rp = await getSetting<Record<string, Record<string, unknown>>>("role_perms", {});
@@ -250,6 +251,33 @@ const handlers: Record<string, (args: any, ctx: Ctx) => Promise<any>> = {
 };
 
 const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
+  async my_notifications(me, { kind }) {
+    let query = db.from("account_notifications").select("id,kind,title,amount,currency_code,detail,created_at,read_at").eq("account_id", me.id).order("created_at", { ascending: false }).limit(200);
+    if (["receipt", "etc", "payment"].includes(kind)) query = query.eq("kind", kind);
+    return q(query);
+  },
+  async read_notifications(me) {
+    await q(db.from("account_notifications").update({ read_at: new Date().toISOString() }).eq("account_id", me.id).is("read_at", null));
+    return { ok: true };
+  },
+  async receipt_target(_me, { id }) {
+    const target = await q(db.from("accounts").select("id,username,banned").eq("id", id).maybeSingle());
+    if (!target || target.banned) fail("收款账号不存在或已停用");
+    const methods: any[] = await q(db.from("payment_methods").select("id,name,currency_ids"));
+    const ids = new Set(methods.flatMap((m) => m.currency_ids ?? []));
+    const currencies = (await allCur()).filter((c) => ids.has(c.id) && (c.rate_sign ?? 1) > 0).map((c) => ({ id: c.id, code: c.code, symbol: c.symbol }));
+    return { id: target.id, username: target.username, currencies, methods: methods.map((m) => ({ id: m.id, name: m.name, currency_ids: m.currency_ids })) };
+  },
+  async receipt_pay(me, { to_id, currency_id, payment_method_id, amount, pay_pin }) {
+    amount = receiptAmount(amount);
+    if (me.id === to_id) fail("不能向自己付款");
+    if (me.pay_pin_hash && !(await checkHash(me.pay_pin_hash, String(pay_pin ?? "")))) fail("支付密码错误");
+    const pm = await q(db.from("payment_methods").select("id,currency_ids,fee_normal").eq("id", payment_method_id).maybeSingle());
+    if (!pm?.currency_ids?.includes(currency_id)) fail("该支付方式不支持此货币");
+    const fee = me.role === "normal" ? Number(pm.fee_normal) : Number(await feePct(me));
+    const transaction_id = await q(db.rpc("pay_receipt", { p_from: me.id, p_to: to_id, p_currency: currency_id, p_amount: amount, p_method: pm.id, p_fee: fee }));
+    return { ok: true, transaction_id };
+  },
   async me(me) {
     return { id: me.id, username: me.username, role: me.role, realRole: me.real_role, perms: await perms(me), canRegister: CAN_REGISTER[me.role], theme: me.permissions?.theme ?? null, hasPayPin: !!me.pay_pin_hash, etcEnabled: me.etc_enabled !== false, impersonated: !!me.impersonated_by };
   },
@@ -596,7 +624,7 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
       const debt = amount - got;
       if (debt > 1e-9) await addBal(me.id, f.currency_id, -debt); // no money → balance goes negative
       await addBal(f.engineer_id, f.currency_id, amount);
-      await log(me, "auto_charge", { facility: f.name, kind: f.kind, amount, debt, reason, card: card?.mode ?? null });
+      await log(me, "auto_charge", { facility: f.name, engineer_id: f.engineer_id, currency_id: f.currency_id, kind: f.kind, amount, debt, reason, card: card?.mode ?? null });
       events.push(`${f.name}：${reason}${note}${debt > 1e-9 ? "（余额不足，已扣成负数）" : ""}`);
     };
     for (const f of facs) {

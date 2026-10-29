@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_notifications: {
+        Row: {
+          account_id: string
+          amount: number
+          created_at: string
+          currency_code: string
+          detail: string
+          id: string
+          kind: string
+          read_at: string | null
+          title: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          created_at?: string
+          currency_code: string
+          detail?: string
+          id?: string
+          kind: string
+          read_at?: string | null
+          title: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          created_at?: string
+          currency_code?: string
+          detail?: string
+          id?: string
+          kind?: string
+          read_at?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_notifications_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       accounts: {
         Row: {
           banned: boolean
@@ -481,7 +525,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      pay_receipt: {
+        Args: {
+          p_amount: number
+          p_currency: string
+          p_fee: number
+          p_from: string
+          p_method: string
+          p_to: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
