@@ -1,0 +1,4 @@
+- [ ] Finish satellite map validation.
+- [ ] Add account receipt and ETC charge notification history.
+- [ ] Add account receipt QR codes and authenticated scan-to-pay flow.
+- [ ] Verify payment, notifications, and map switching.
