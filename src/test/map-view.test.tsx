@@ -11,12 +11,15 @@ const fake = vi.hoisted(() => {
     }),
     remove: vi.fn(),
   };
-  return { map, handlers };
+  const layers = vi.fn(() => ({ addTo: vi.fn() }));
+  const tileLayer = vi.fn(() => ({ addTo: vi.fn().mockReturnThis() }));
+  return { map, handlers, layers, tileLayer };
 });
 vi.mock("leaflet", () => ({
   default: undefined,
   map: () => fake.map,
-  tileLayer: () => ({ addTo: vi.fn() }),
+  tileLayer: fake.tileLayer,
+  control: { layers: fake.layers },
   layerGroup: () => ({ addTo() { return this; }, clearLayers: vi.fn() }),
 }));
 
@@ -27,6 +30,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("地图定位不打断浏览", () => {
+  it("提供街道和卫星底图切换，不重新设置地图位置", async () => {
+    render(<MapView center={[24, 118]} />);
+    await waitFor(() => expect(fake.layers).toHaveBeenCalled());
+    expect(fake.tileLayer).toHaveBeenCalledWith(
+      "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      expect.objectContaining({ maxZoom: 19 }),
+    );
+    expect(fake.layers).toHaveBeenCalledWith(
+      { "街道地图": expect.any(Object), "卫星地图": expect.any(Object) },
+      undefined,
+      { collapsed: false },
+    );
+    expect(fake.map.setView).toHaveBeenCalledTimes(1);
+  });
   it("初次定位后，持续 GPS 更新不会拉回当前位置", async () => {
     const view = render(<MapView center={[24, 118]} />);
     await waitFor(() => expect(fake.map.setView).toHaveBeenCalledWith([24, 118], 13));
