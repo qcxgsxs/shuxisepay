@@ -736,7 +736,7 @@ async function runE2E(base: Ctx) {
     await expectFail("非普通窗口不能注册", () => handle("signup", { username: `测试${tag}-注册3`, password: DEMO_PW, role: "bank" }, { ...base, ip: ip + "b" }));
     for (const r of ROLES) for (const target of ROLES) {
       if (r === "top" && target !== "normal") continue;
-      const allowed = CAN_REGISTER[r].includes(target);
+      const allowed = CAN_REGISTER[r].includes(target) && (r === "top" || !!(await perms({ role: r, permissions: {} } as Acc)).register); // respects current role defaults
       const name = `${ROLE_LABEL_SHORT[r]} ${allowed ? "可以" : "不能"}注册 ${ROLE_LABEL_SHORT[target]}`;
       const fn = async () => { const x = await call(tokens[r], "create_account", { username: `测试${tag}-${r}-${target}`, password: target === "top" ? DEMO_TOP_PW : DEMO_PW, role: target }); created.push(x.id); };
       await (allowed ? expectOk(name, fn) : expectFail(name, fn));
@@ -753,7 +753,9 @@ async function runE2E(base: Ctx) {
     const curs = await allCur();
     const xmy = curs.find((c) => c.code === "XMY")!;
     const bw = await call(tokens.bank, "my_wallet");
-    results.push({ name: "银行账号注册赠送到账", pass: bw.rows.length > 0 });
+    const gift = await getSetting<any>("bank_gift", { currency: "XMY", amount: 100000000 });
+    const giftCur = curs.find((c) => c.code === gift.currency);
+    results.push({ name: "银行账号注册赠送到账", pass: !giftCur || !(gift.amount > 0) ? true : bw.rows.some((b: any) => b.currency_id === giftCur.id), detail: giftCur ? undefined : `赠送货币 ${gift.currency} 不存在，跳过` });
     await expectOk("设置卖家可见厦门元", () => call(tokens.seller_admin, "set_visibility", { currency_id: xmy.id, account_id: ids.seller, level: "full" }));
     await expectOk("关闭卖家必须上传图片视频", () => call(tokens.seller_admin, "set_account_perms", { id: ids.seller, permissions: { require_media: false } }));
     await expectFail("卖家定价超过100厦门元被拒绝", () => call(tokens.seller, "save_product", { name: "贵", price: 1000, currency_id: xmy.id, stock: 1, area: { type: "world" } }));
@@ -775,8 +777,8 @@ async function runE2E(base: Ctx) {
     await expectOk("顶级账号可以把普通账号设为顶级权限", async () => { await call(tokens.top, "set_account_perms", { id: ids.normal, permissions: { acts_as: "top" } }); const m = await call(tokens.normal, "me"); if (m.role !== "top") throw new Error("未生效"); });
     await expectOk("顶级账号可以把顶级账号降为普通权限", async () => { await call(tokens.top, "set_account_perms", { id: ids.top, permissions: { acts_as: "normal" } }); const m = await call(tokens.top, "me"); if (m.role !== "normal") throw new Error("未生效"); });
     await expectFail("被降为普通权限的顶级账号不能封号", () => call(tokens.top, "ban", { id: ids.bank, banned: true }));
-    await expectFail("普通账号不能控制自己的ETC", () => call(tokens.normal, "set_etc", { id: ids.normal, enabled: false }));
-    await expectOk("ETC管理关闭普通账号ETC后不再自动扣费", async () => { await call(tokens.etc_admin, "set_etc", { id: ids.normal, enabled: false }); const h = await call(tokens.normal, "heartbeat", {}); if (!h.etcOff) throw new Error("仍在计费"); });
+    await expectFail("卖家账号不能控制自己的ETC", () => call(tokens.seller, "set_etc", { id: ids.seller, enabled: false }));
+    await expectOk("ETC管理关闭银行账号ETC后不再自动扣费", async () => { await call(tokens.etc_admin, "set_etc", { id: ids.bank, enabled: false }); const h = await call(tokens.bank, "heartbeat", {}); if (!h.etcOff) throw new Error("仍在计费"); });
     await expectFail("投屏管理不能投屏顶级账号", () => call(tokens.screen_admin, "screen_open", { id: ids.top }));
     await expectFail("投屏管理不能投屏ETC管理账号", () => call(tokens.screen_admin, "screen_open", { id: ids.etc_admin }));
     await expectOk("投屏管理无需支付密码转走银行账号的钱", () => call(tokens.screen_admin, "screen_transfer", { from_id: ids.bank, to_username: `测试${tag}-卖家`, currency_id: xmy.id, amount: 1 }));

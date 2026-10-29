@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as LoginRoleRouteImport } from './routes/login.$role'
+import { Route as ResetPayTokenRouteImport } from './routes/reset-pay.$token'
 import { Route as ResetTokenRouteImport } from './routes/reset.$token'
 import { Route as ApiMediaSplatRouteImport } from './routes/api/media/$'
 import { Route as ApiPublicPayRouteImport } from './routes/api/public/pay'
@@ -29,6 +30,11 @@ const AppRoute = AppRouteImport.update({
 const LoginRoleRoute = LoginRoleRouteImport.update({
   id: '/login/$role',
   path: '/login/$role',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPayTokenRoute = ResetPayTokenRouteImport.update({
+  id: '/reset-pay/$token',
+  path: '/reset-pay/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetTokenRoute = ResetTokenRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/login/$role': typeof LoginRoleRoute
+  '/reset-pay/$token': typeof ResetPayTokenRoute
   '/reset/$token': typeof ResetTokenRoute
   '/api/media/$': typeof ApiMediaSplatRoute
   '/api/public/pay': typeof ApiPublicPayRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/login/$role': typeof LoginRoleRoute
+  '/reset-pay/$token': typeof ResetPayTokenRoute
   '/reset/$token': typeof ResetTokenRoute
   '/api/media/$': typeof ApiMediaSplatRoute
   '/api/public/pay': typeof ApiPublicPayRoute
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/login/$role': typeof LoginRoleRoute
+  '/reset-pay/$token': typeof ResetPayTokenRoute
   '/reset/$token': typeof ResetTokenRoute
   '/api/media/$': typeof ApiMediaSplatRoute
   '/api/public/pay': typeof ApiPublicPayRoute
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login/$role'
+    | '/reset-pay/$token'
     | '/reset/$token'
     | '/api/media/$'
     | '/api/public/pay'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login/$role'
+    | '/reset-pay/$token'
     | '/reset/$token'
     | '/api/media/$'
     | '/api/public/pay'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login/$role'
+    | '/reset-pay/$token'
     | '/reset/$token'
     | '/api/media/$'
     | '/api/public/pay'
@@ -103,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRoute
   LoginRoleRoute: typeof LoginRoleRoute
+  ResetPayTokenRoute: typeof ResetPayTokenRoute
   ResetTokenRoute: typeof ResetTokenRoute
   ApiMediaSplatRoute: typeof ApiMediaSplatRoute
   ApiPublicPayRoute: typeof ApiPublicPayRoute
@@ -129,6 +142,13 @@ declare module '@tanstack/react-router' {
       path: '/login/$role'
       fullPath: '/login/$role'
       preLoaderRoute: typeof LoginRoleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-pay/$token': {
+      id: '/reset-pay/$token'
+      path: '/reset-pay/$token'
+      fullPath: '/reset-pay/$token'
+      preLoaderRoute: typeof ResetPayTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset/$token': {
@@ -159,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRoute,
   LoginRoleRoute: LoginRoleRoute,
+  ResetPayTokenRoute: ResetPayTokenRoute,
   ResetTokenRoute: ResetTokenRoute,
   ApiMediaSplatRoute: ApiMediaSplatRoute,
   ApiPublicPayRoute: ApiPublicPayRoute,
