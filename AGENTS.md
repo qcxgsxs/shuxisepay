@@ -25,3 +25,4 @@
 - Screen-admin "投屏" works by issuing a session for the target flagged `sessions.impersonated_by`; it never applies to top or ETC-admin accounts.
 - Server-side AI calls use the gateway Responses API via a streamed raw fetch helper (`aiJson`) with strict JSON schema output.
 - Auto-charging runs from a global `BackgroundEtc` in the app shell that heartbeats every saved 分身 session; shortfalls become negative balances in the facility currency. Discount cards live in setting `discount_cards` (keyed by account id) and are applied after `effMult` via `applyCard`.
+- Payment logs trigger persistent owner-scoped receipt/ETC notifications; QR payments use a service-only transactional function that locks both accounts, moves balances and emits notifications atomically. QR URLs carry only the payee account ID, never sessions or payment authorization.
