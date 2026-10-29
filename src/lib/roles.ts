@@ -1,8 +1,10 @@
-export const ROLES = ["top", "bank_admin", "bank", "engineer_admin", "engineer", "seller_admin", "seller", "pay_admin", "normal"] as const;
+export const ROLES = ["top", "etc_admin", "screen_admin", "bank_admin", "bank", "engineer_admin", "engineer", "seller_admin", "seller", "pay_admin", "normal"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABEL: Record<Role, string> = {
   top: "顶级账号",
+  etc_admin: "ETC管理账号",
+  screen_admin: "投屏管理账号",
   bank_admin: "银行管理账号",
   bank: "银行账号",
   engineer_admin: "工程师管理账号",
@@ -15,6 +17,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const CAN_REGISTER: Record<Role, Role[]> = {
   top: [...ROLES],
+  etc_admin: [],
+  screen_admin: [],
   bank_admin: ["bank", "engineer_admin", "engineer", "seller_admin", "seller", "pay_admin", "normal"],
   bank: ["engineer", "seller", "normal"],
   engineer_admin: ["engineer", "seller", "normal"],
@@ -36,6 +40,8 @@ export type FacilityKind = keyof typeof FACILITY_KINDS;
 export type PermDef = { key: string; label: string; type: "bool" | "number" };
 export const PERM_DEFS: Record<Role, PermDef[]> = {
   top: [],
+  etc_admin: [],
+  screen_admin: [],
   bank_admin: [
     { key: "register", label: "可注册账号", type: "bool" },
     { key: "export_logs", label: "可导出日志", type: "bool" },
@@ -79,6 +85,8 @@ export const PERM_DEFS: Record<Role, PermDef[]> = {
 
 export const DEFAULT_PERMS: Record<Role, Record<string, unknown>> = {
   top: {},
+  etc_admin: {},
+  screen_admin: {},
   bank_admin: { register: true, export_logs: true, currency_admin: true },
   bank: { register: true, give_money: true, auto_deduct: true, exchange: true },
   engineer_admin: { register: true, export_logs: true },
