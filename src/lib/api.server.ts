@@ -584,9 +584,12 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
       if (!f.currency_id || f.engineer_id === me.id) return;
       let note = "";
       if (card && card.mode && card.mode !== "none") {
-        const r = applyCard(card, amount, secs, first);
+        const r = applyCard(card, amount, secs, first, f.id);
         amount = r.amount; note = `（优待卡：${r.note}）`;
-        if (r.used !== card.used) { card = { ...card, used: r.used }; cards[me.id] = card; await setSetting("discount_cards", cards); }
+        if (r.used !== card.used) {
+          const fn = r.freeNow && f.kind !== "toll" ? [...new Set([...(card.free_now ?? []), f.id])] : card.free_now;
+          card = { ...card, used: r.used, free_now: fn }; cards[me.id] = card; await setSetting("discount_cards", cards);
+        }
       }
       if (!(amount > 0)) { if (note) events.push(`${f.name}：${reason}${note}`); return; }
       const got = await takeMoney(me.id, f.currency_id, amount, 0, true);
@@ -623,6 +626,7 @@ const authed: Record<string, (me: Acc, args: any, ctx: Ctx) => Promise<any>> = {
           await log(me, "hotel_leave", { facility_id: f.id });
         }
         await q(db.from("presence").delete().eq("account_id", me.id).eq("facility_id", f.id));
+        if (card?.free_now?.includes(f.id)) { card = { ...card, free_now: card.free_now.filter((x: string) => x !== f.id) }; cards[me.id] = card; await setSetting("discount_cards", cards); }
       }
     }
     return { events, ip: ctx.ip };
@@ -810,7 +814,7 @@ async function runE2E(base: Ctx) {
 
 // ---------- discount cards ----------
 /** Apply a discount card to one charge. `first` = start of a visit (toll pass / entering). pct>100 makes it pricier. */
-export function applyCard(card: any, amount: number, secs: number, first: boolean): { amount: number; used: number; note: string } {
+export function applyCard(card: any, amount: number, secs: number, first: boolean, fid = ""): { amount: number; used: number; note: string; freeNow?: boolean } {
   const used = Number(card.used ?? 0);
   const pct = Math.max(0, Number(card.pct ?? 100)) / 100;
   switch (card.mode) {
@@ -818,8 +822,8 @@ export function applyCard(card: any, amount: number, secs: number, first: boolea
     case "pct": return { amount: amount * pct, used, note: `按${card.pct}%收费` };
     case "fixed": return first ? { amount: Number(card.amount ?? 0), used, note: `每次${card.amount}` } : { amount: 0, used, note: "已按次收费" };
     case "free_then_pct":
-      if (first && used < Number(card.free_count ?? 0)) return { amount: 0, used: used + 1, note: `免费第${used + 1}/${card.free_count}次` };
-      if (!first && used <= Number(card.free_count ?? 0) && card._freeVisit) return { amount: 0, used, note: "免费中" };
+      if (first && used < Number(card.free_count ?? 0)) return { amount: 0, used: used + 1, note: `免费第${used + 1}/${card.free_count}次`, freeNow: true };
+      if (!first && (card.free_now ?? []).includes(fid)) return { amount: 0, used, note: "本次免费中" };
       return { amount: amount * pct, used, note: `按${card.pct}%收费` };
     case "per_min": return { amount: (Number(card.per_min ?? 0) * secs) / 60, used, note: `每分钟${card.per_min}` };
     default: return { amount, used, note: "" };
