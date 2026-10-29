@@ -10,8 +10,9 @@ import { WalletPanel } from "@/components/panels/Wallet";
 import { PayMethodsPanel, SellerPanel, ShopPanel } from "@/components/panels/Commerce";
 import { AppearancePanel, ChatPanel, EtcPanel, LogsPanel, MapPanel, MENU_KEYS } from "@/components/panels/Misc";
 import { TestsPanel } from "@/components/panels/Tests";
+import { DebtPrompt, DevicesPanel, EtcAdminPanel, ScreenPanel } from "@/components/panels/Extra";
 
-export type Me = { id: string; username: string; role: Role; realRole: Role; perms: Record<string, any>; canRegister: Role[]; theme: Theme | null };
+export type Me = { id: string; username: string; role: Role; realRole: Role; perms: Record<string, any>; canRegister: Role[]; theme: Theme | null; hasPayPin?: boolean; etcEnabled?: boolean; impersonated?: boolean };
 
 export const Route = createFileRoute("/app")({
   ssr: false,
@@ -37,7 +38,10 @@ function menusFor(me: Me): string[] {
   if (r === "top" || r === "bank_admin") m.push("currency");
   if (r === "top" || r === "bank_admin" || r === "pay_admin") m.push("pay");
   if (["top", "bank_admin", "engineer_admin", "seller_admin", "pay_admin"].includes(r)) m.push("logs");
+  if (r === "top" || r === "etc_admin") m.push("etcadm");
+  if (r === "top" || r === "screen_admin") m.push("screen");
   if (r === "top") m.push("perms", "look", "tests");
+  m.push("devices");
   return m;
 }
 
@@ -65,6 +69,7 @@ function AppPage() {
 
   return (
     <Themed menu={menu} override={me.theme}>
+      <DebtPrompt key={`debt-${active}`} />
       <header className="sticky top-0 z-[500] border-b-2 border-ink bg-card">
         <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2">
           <Link to="/"><AppIcon size={36} /></Link>
@@ -77,6 +82,7 @@ function AppPage() {
           <Link to="/" className="btn btn-ghost shrink-0" title="再登录一个账号">+分身</Link>
           <button className="btn btn-ghost shrink-0" onClick={logout}>退出</button>
         </div>
+        {me.impersonated && <p className="bg-destructive px-3 py-1 text-center text-xs text-destructive-foreground">投屏中：你正在以「{me.username}」的身份操作</p>}
         {me.role !== me.realRole && <p className="px-3 pb-1 text-center text-xs">当前拥有「{ROLE_LABEL[me.role]}」的权限（由顶级账号设置）</p>}
         {!side && (
           <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-3 pb-2">
@@ -104,6 +110,9 @@ function AppPage() {
           {menu === "perms" && <RolePermsPanel />}
           {menu === "look" && <AppearancePanel />}
           {menu === "tests" && <TestsPanel />}
+          {menu === "etcadm" && <EtcAdminPanel me={me} />}
+          {menu === "screen" && <ScreenPanel onOpened={(tok) => switchTo(tok)} />}
+          {menu === "devices" && <DevicesPanel me={me} onChanged={(next) => { qc.clear(); setMenu(""); setActive(next); }} />}
         </main>
       </div>
     </Themed>

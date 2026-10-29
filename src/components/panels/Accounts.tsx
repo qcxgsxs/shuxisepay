@@ -123,6 +123,10 @@ export function AccountsPanel({ me }: { me: Me }) {
                             toast.success("重设链接已复制", { description: url });
                           }
                         }}>生成重设链接</button>
+                        <button className="btn btn-ghost" onClick={async () => {
+                          const x = await act<{ token: string }>("pay_reset_link", { id: r.id });
+                          if (x) { const url = `${location.origin}/reset-pay/${x.token}`; navigator.clipboard?.writeText(url); toast.success("支付密码重设链接已复制", { description: url }); }
+                        }}>生成支付密码重设链接</button>
                         <button className="btn btn-ghost" onClick={async () => { if (await act("ban", { id: r.id, banned: !r.banned }, r.banned ? "已解封" : "已封号")) refresh(); }}>{r.banned ? "解封" : "封号"}</button>
                         <button className="btn btn-danger" onClick={async () => { if (confirm("确定把该账号资产清零？")) await act("zero_assets", { id: r.id }, "资产已清零"); }}>资产清零</button>
                         <button className="btn btn-danger" onClick={async () => { if (confirm("确定删除？") && (await act("delete_account", { id: r.id }, "已删除"))) refresh(); }}>删除</button>
